@@ -1,0 +1,15 @@
+OLED Music 1.1 (versionCode 2)
+
+Correcao: suporte para app.revanced.android.apps.youtube.music.
+ReVanced tem prioridade quando instalado e ativo, tanto para abrir como
+para filtrar sessoes e notificacoes. Original como alternativa se ausente/desativado.
+
+Validado: compilacao Java/API36, recursos aapt2, DEX D8, assinatura v2/v3,
+alinhamento zipalign, versao final e visibilidade dos dois pacotes no APK.
+Certificado SHA256 comparado com o APK 1.0 entregue: identico.
+Pode atualizar a instalacao anterior sem desinstalar.
+
+Nao testado em aparelho ou emulador com ReVanced 8.40.54.
+
+SHA256 de OLED-Music-v1.1.apk:
+23D7E70B5A0AFCB45F2946E8D364723BC16CDA92D98F65B39FF291F081DC48EB
