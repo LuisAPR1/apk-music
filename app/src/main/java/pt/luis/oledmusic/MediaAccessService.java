@@ -19,12 +19,14 @@ public final class MediaAccessService extends NotificationListenerService {
         final Icon icon;
         final Bitmap bitmap;
         final String title;
+        final String artist;
 
-        Snapshot(MediaSession.Token token, Icon icon, Bitmap bitmap, String title) {
+        Snapshot(MediaSession.Token token, Icon icon, Bitmap bitmap, String title, String artist) {
             this.token = token;
             this.icon = icon;
             this.bitmap = bitmap;
             this.title = title;
+            this.artist = artist;
         }
     }
 
@@ -88,9 +90,10 @@ public final class MediaAccessService extends NotificationListenerService {
                 if (item.getPostTime() < newest) continue;
                 Object rawBitmap = extras.getParcelable(Notification.EXTRA_LARGE_ICON);
                 CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
+                CharSequence artist = extras.getCharSequence(Notification.EXTRA_TEXT);
                 best = new Snapshot((MediaSession.Token) rawToken, notification.getLargeIcon(),
                         rawBitmap instanceof Bitmap ? (Bitmap) rawBitmap : null,
-                        title == null ? "" : title.toString());
+                        title == null ? "" : title.toString(), artist == null ? "" : artist.toString());
                 newest = item.getPostTime();
             }
         } catch (RuntimeException ignored) {

@@ -1,0 +1,72 @@
+OLED Music 1.6 — reconstrução para teste
+Data: 2026-11-03
+
+Origem
+======
+APK 1.5 fornecido pelo proprietário: OLED-Music-v1.5.apk
+SHA256: e30c543dd549ef37b051579e534104f559385f6b3aede9214b3f9a21e441b033
+Versão original: versionName 1.5, versionCode 6.
+Commit referido nos metadados do APK: f6f4474abf1303c078ba5b5d9699676e0a7a0552.
+Esse commit corresponde à base 1.1. As alterações posteriores não fazem parte
+do histórico disponível; a referência no APK não recupera o estado por commit.
+
+Recuperação
+===========
+Classes Java e recursos extraídos com JADX 1.5.6. As 18 classes de aplicação
+foram recuperadas; R é gerada novamente a partir dos recursos.
+MainActivity, definições, cores, gestos, brilho, volume, bloqueio e temporizador
+foram recuperados do APK. MediaBridge e MediaAccessService foram reconstruídos
+com o código legível da base Git e as extensões verificadas no APK 1.5:
+artista nos metadados/notificações e pausa da sessão pelo temporizador.
+Foram corrigidos artefactos da descompilação: referências de callbacks,
+variáveis capturadas e o fluxo do cálculo de posições no PlayerLayout.
+O fluxo de onLayout foi confrontado com as instruções DEX originais.
+Os nomes de métodos auxiliares foram tornados legíveis.
+Não se recuperaram os commits nem o texto exato do código original.
+
+Compilação efetuada
+==================
+Comando:
+python build.py --sdk-root /workspace/.toolchain/sdk --ecj /workspace/.toolchain/ecj.jar
+Java 21, ECJ 3.38.0, Android SDK Platform 36 rev. 2,
+Android Build Tools 36.0.0, bytecode Java 8, minSdk 26, targetSdk 36.
+Todo o Java foi compilado, convertido para DEX e incluído num novo APK.
+Os recursos foram compilados e ligados novamente por aapt2.
+Não foi usado o classes.dex do APK 1.5 na construção da 1.6.
+build.ps1 foi atualizado para ler a versão de app/build.gradle; não foi
+executado, pois este ambiente é Linux. A via Gradle também não foi executada.
+
+Resultado
+=========
+Ficheiro: OLED-Music-v1.6.apk
+Package: pt.luis.oledmusic
+versionName: 1.6
+versionCode: 7
+SHA256: 3cbbb82b3a425d3a2cf8dcaa1e7ad0fd79d9716480cde3e8ecbeb58d844265df
+Assinatura: oledmusic-local.jks, alias oledmusic, RSA 3072.
+SHA256 do certificado (igual ao APK 1.5):
+00a2a2190ede4539eab5465eae72eba414ff33d5d4a52823535ff12f3f3cadcf
+
+Verificações realizadas
+======================
+- Compilação completa sem erros.
+- apksigner verify: assinatura válida, esquemas v2 e v3.
+- zipalign -c 4: alinhamento válido.
+- aapt2 dump badging: pacote, versões e níveis SDK corretos.
+- Nova descompilação do APK gerado concluída sem erros.
+- Comparação XML do manifesto: idêntico à 1.5, exceto versionName/versionCode.
+- Todos os IDs de recursos foram preservados.
+- Comparação XML de strings, cores, estilos, desenho e ícone: idênticos.
+- Mesmas classes de aplicação; literais de texto da 1.5 presentes na 1.6.
+- Nenhuma permissão adicional relativamente à 1.5.
+
+Limites e teste no telemóvel
+===========================
+Não foi executado em telemóvel ou emulador neste ambiente.
+A equivalência visual e funcional ainda precisa do teste do proprietário.
+Instalar por cima da 1.5, escolhendo Atualizar, para conservar os dados.
+Comparar as definições guardadas, capa e controlos, rotação, título/artista,
+paleta de cores, gesto de três dedos, gestos na capa, brilho e volume,
+temporizador, bloqueio/desbloqueio e acesso à sessão do YouTube Music/ReVanced.
+O ZIP de código não inclui a chave privada nem pastas temporárias/toolchain.
+Nenhum push ou publicação faz parte desta recuperação.

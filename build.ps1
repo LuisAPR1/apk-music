@@ -13,6 +13,12 @@ $javaBin = Join-Path $JavaHome 'bin'
 $bt = Join-Path $SdkRoot 'build-tools\36.0.0'
 $androidJar = Join-Path $SdkRoot 'platforms\android-36\android.jar'
 if (-not (Test-Path $androidJar)) { throw 'Install Android SDK platform 36 and build-tools 36.0.0. Pass -SdkRoot with the SDK directory.' }
+$config = Get-Content -Raw (Join-Path $PSScriptRoot 'app\build.gradle')
+$versionCode = [regex]::Match($config, 'versionCode\s+(\d+)').Groups[1].Value
+$versionName = [regex]::Match($config, "versionName\s+'([^']+)'").Groups[1].Value
+if (-not $versionCode -or -not $versionName) { throw 'Cannot read version from app/build.gradle.' }
+$key = Join-Path $PSScriptRoot 'oledmusic-local.jks'
+if (-not (Test-Path $key)) { throw 'The original oledmusic-local.jks signing key is required.' }
 $out = Join-Path $PSScriptRoot 'build'
 # A fresh numbered build directory avoids stale bytecode without deleting prior builds.
 $work = Join-Path $out ('work-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))
@@ -28,7 +34,7 @@ $manifestXml.DocumentElement.SetAttribute('package', 'pt.luis.oledmusic')
 $generatedManifest = Join-Path $work 'AndroidManifest.xml'
 $manifestXml.Save($generatedManifest)
 Run (Join-Path $bt 'aapt2.exe') @('compile','--dir',$res,'-o',"$work\resources.zip")
-Run (Join-Path $bt 'aapt2.exe') @('link','-I',$androidJar,'--manifest',$generatedManifest,'--min-sdk-version','26','--target-sdk-version','36','--version-code','2','--version-name','1.1','--java',$generated,'-o',"$work\unsigned.apk","$work\resources.zip")
+Run (Join-Path $bt 'aapt2.exe') @('link','-I',$androidJar,'--manifest',$generatedManifest,'--min-sdk-version','26','--target-sdk-version','36','--version-code',$versionCode,'--version-name',$versionName,'--java',$generated,'-o',"$work\unsigned.apk","$work\resources.zip")
 $sources = @(Get-ChildItem (Join-Path $PSScriptRoot 'app\src\main\java'),$generated -Filter '*.java' -Recurse | ForEach-Object { $_.FullName })
 $javacArgs = @('--release','8','-encoding','UTF-8','-classpath',$androidJar,'-d',$classes) + $sources
 Run (Join-Path $javaBin 'javac.exe') $javacArgs
@@ -36,11 +42,7 @@ Run (Join-Path $javaBin 'jar.exe') @("-J-Djava.io.tmpdir=$work",'cf',"$work\clas
 Run (Join-Path $javaBin 'java.exe') @('-cp',"$bt\lib\d8.jar",'com.android.tools.r8.D8','--min-api','26','--lib',$androidJar,'--output',$dex,"$work\classes.jar")
 Run (Join-Path $javaBin 'jar.exe') @("-J-Djava.io.tmpdir=$work",'uf',"$work\unsigned.apk",'-C',$dex,'classes.dex')
 Run (Join-Path $bt 'zipalign.exe') @('-f','4',"$work\unsigned.apk","$work\aligned.apk")
-$key = Join-Path $PSScriptRoot 'oledmusic-local.jks'
-if (-not (Test-Path $key)) {
-    Run (Join-Path $javaBin 'keytool.exe') @('-genkeypair','-keystore',$key,'-storepass','android','-keypass','android','-alias','oledmusic','-keyalg','RSA','-keysize','3072','-validity','10000','-dname','CN=OLED Music Personal Build','-storetype','JKS')
-}
-$apk = Join-Path $out 'OLED-Music.apk'
+$apk = Join-Path $out "OLED-Music-v$versionName.apk"
 Run (Join-Path $javaBin 'java.exe') @('-jar',"$bt\lib\apksigner.jar",'sign','--ks',$key,'--ks-key-alias','oledmusic','--ks-pass','pass:android','--key-pass','pass:android','--out',$apk,"$work\aligned.apk")
 Run (Join-Path $javaBin 'java.exe') @('-jar',"$bt\lib\apksigner.jar",'verify','--verbose',$apk)
 Run (Join-Path $bt 'zipalign.exe') @('-c','4',$apk)

@@ -60,6 +60,7 @@ public final class MediaBridge {
         public boolean canToggle;
         public Bitmap artwork;
         public String title = "";
+        public String artist = "";
     }
 
     private final Context context;
@@ -307,9 +308,18 @@ public final class MediaBridge {
             state.canToggle = (actions & (PlaybackState.ACTION_PLAY_PAUSE
                     | (state.playing ? PlaybackState.ACTION_PAUSE : PlaybackState.ACTION_PLAY))) != 0;
             state.title = title(controller.getMetadata());
+            MediaMetadata metadata = controller.getMetadata();
+            if (metadata != null) {
+                state.artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST);
+                if (TextUtils.isEmpty(state.artist)) {
+                    state.artist = metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
+                }
+            }
             MediaAccessService.Snapshot snapshot = MediaAccessService.snapshot();
             if (TextUtils.isEmpty(state.title) && snapshot != null
                     && controller.getSessionToken().equals(snapshot.token)) state.title = snapshot.title;
+            if (TextUtils.isEmpty(state.artist) && snapshot != null
+                    && controller.getSessionToken().equals(snapshot.token)) state.artist = snapshot.artist;
             state.artwork = artwork;
         }
         listener.onState(state);
@@ -333,6 +343,34 @@ public final class MediaBridge {
         if (controller == null || !hasAccess(context)) return;
         try { controller.getTransportControls().skipToNext(); }
         catch (RuntimeException ignored) { refreshSessions(); }
+    }
+
+    static boolean pausePreferred(Context context) {
+        ArrayList<MediaController> arrayList;
+        if (!hasAccess(context)) {
+            return false;
+        }
+        String strPreferredPackage = preferredPackage(context);
+        try {
+            MediaSessionManager mediaSessionManager = (MediaSessionManager) context.getSystemService(MediaSessionManager.class);
+            if (mediaSessionManager == null) {
+                arrayList = new ArrayList();
+            } else {
+                arrayList = new ArrayList(mediaSessionManager.getActiveSessions(new ComponentName(context, (Class<?>) MediaAccessService.class)));
+            }
+            MediaAccessService.Snapshot snapshot = MediaAccessService.snapshot();
+            if (snapshot != null) {
+                arrayList.add(new MediaController(context, snapshot.token));
+            }
+            for (MediaController mediaController : arrayList) {
+                if (strPreferredPackage.equals(mediaController.getPackageName()) && isPlaying(mediaController.getPlaybackState())) {
+                    mediaController.getTransportControls().pause();
+                }
+            }
+            return true;
+        } catch (RuntimeException unused) {
+            return false;
+        }
     }
 
     private static boolean isLocalUri(String value) {

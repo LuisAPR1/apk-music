@@ -3,389 +3,955 @@ package pt.luis.oledmusic;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
+import android.graphics.Insets;
 import android.graphics.Outline;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
-import android.view.Gravity;
+import android.text.TextUtils;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** A deliberately quiet, local remote for the YouTube Music media session. */
 public final class MainActivity extends Activity implements MediaBridge.Listener {
+    private boolean accessGranted;
+    private AppPreferences appearance;
     private MediaBridge bridge;
-    private FrameLayout root;
+    private BrightnessControl brightnessControl;
+    private boolean displayedPlaying;
+    private LockScreenController lockScreen;
+    private MediaBridge.State mediaState = new MediaBridge.State();
+    private Button openMusic;
     private PlayerLayout player;
+    private FrameLayout root;
+    private ThreeFingerTapGesture settingsGesture;
     private LinearLayout setup;
+    private Button setupAction;
+    private TextView setupBody;
     private ScrollView setupScroll;
     private TextView setupTitle;
-    private TextView setupBody;
-    private Button setupAction;
-    private Button openMusic;
-    private boolean accessGranted;
-    private boolean displayedPlaying;
+    private boolean started;
+    private VolumeControl volumeControl;
 
-    @Override public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(Color.BLACK);
-        getWindow().setNavigationBarColor(Color.BLACK);
-        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.BLACK));
+    @Override
+    public void onCreate(Bundle bundle) {
+        super.onCreate(bundle);
+        this.appearance = AppPreferences.load(this);
+        this.lockScreen = new LockScreenController(this);
+        getWindow().setStatusBarColor(-16777216);
+        getWindow().setNavigationBarColor(-16777216);
+        getWindow().setBackgroundDrawable(new ColorDrawable(-16777216));
         if (Build.VERSION.SDK_INT >= 29) {
             getWindow().setStatusBarContrastEnforced(false);
             getWindow().setNavigationBarContrastEnforced(false);
         }
         if (Build.VERSION.SDK_INT >= 28) {
             WindowManager.LayoutParams attributes = getWindow().getAttributes();
-            attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            attributes.layoutInDisplayCutoutMode = 1;
             getWindow().setAttributes(attributes);
         }
-        if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
-
-        root = new FrameLayout(this);
-        root.setBackgroundColor(Color.BLACK);
-        player = new PlayerLayout();
-        root.addView(player, new FrameLayout.LayoutParams(-1, -1));
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().setDecorFitsSystemWindows(false);
+        }
+        FrameLayout frameLayout = new FrameLayout(this);
+        this.root = frameLayout;
+        frameLayout.setBackgroundColor(-16777216);
+        PlayerLayout playerLayout = new PlayerLayout();
+        this.player = playerLayout;
+        this.root.addView(playerLayout, new FrameLayout.LayoutParams(-1, -1));
         buildSetup();
-        setContentView(root);
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            int left = 0, top = 0, right = 0, bottom = 0;
-            if (Build.VERSION.SDK_INT >= 30) {
-                android.graphics.Insets safe = insets.getInsetsIgnoringVisibility(WindowInsets.Type.displayCutout());
-                left = safe.left; top = safe.top; right = safe.right; bottom = safe.bottom;
-            } else if (Build.VERSION.SDK_INT >= 28 && insets.getDisplayCutout() != null) {
-                left = insets.getDisplayCutout().getSafeInsetLeft();
-                top = insets.getDisplayCutout().getSafeInsetTop();
-                right = insets.getDisplayCutout().getSafeInsetRight();
-                bottom = insets.getDisplayCutout().getSafeInsetBottom();
+        this.settingsGesture = new ThreeFingerTapGesture(this, new Runnable() {
+            @Override
+            public final void run() {
+                MainActivity.this.openSettings();
             }
-            root.setPadding(left, top, right, bottom);
-            return insets;
         });
-        bridge = new MediaBridge(this, this);
+        this.root.setContentDescription("OLED Music");
+        this.root.setImportantForAccessibility(1);
+        this.root.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View view, AccessibilityNodeInfo accessibilityNodeInfo) {
+                super.onInitializeAccessibilityNodeInfo(view, accessibilityNodeInfo);
+                accessibilityNodeInfo.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.open_settings_action, MainActivity.this.getString(R.string.open_settings)));
+            }
+
+            @Override
+            public boolean performAccessibilityAction(View view, int i, Bundle bundle2) {
+                if (i == R.id.open_settings_action) {
+                    MainActivity.this.openSettings();
+                    return true;
+                }
+                return super.performAccessibilityAction(view, i, bundle2);
+            }
+        });
+        this.brightnessControl = new BrightnessControl(this, this.player.brightness);
+        this.volumeControl = new VolumeControl(this, this.player.volume);
+        setContentView(this.root);
+        this.root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public final WindowInsets onApplyWindowInsets(View view, WindowInsets windowInsets) {
+                return MainActivity.this.applySafeInsets(view, windowInsets);
+            }
+        });
+        this.bridge = new MediaBridge(this, this);
         showSetup(MediaBridge.hasAccess(this));
         hideSystemBars();
     }
 
-    @Override protected void onStart() {
-        super.onStart();
-        bridge.start();
+    WindowInsets applySafeInsets(View view, WindowInsets windowInsets) {
+        int safeInsetLeft;
+        int safeInsetBottom;
+        int safeInsetTop;
+        int safeInsetRight;
+        if (Build.VERSION.SDK_INT >= 30) {
+            Insets insetsIgnoringVisibility = windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.displayCutout());
+            safeInsetLeft = insetsIgnoringVisibility.left;
+            safeInsetTop = insetsIgnoringVisibility.top;
+            safeInsetRight = insetsIgnoringVisibility.right;
+            safeInsetBottom = insetsIgnoringVisibility.bottom;
+        } else if (Build.VERSION.SDK_INT < 28 || windowInsets.getDisplayCutout() == null) {
+            safeInsetLeft = 0;
+            safeInsetBottom = 0;
+            safeInsetTop = 0;
+            safeInsetRight = 0;
+        } else {
+            safeInsetLeft = windowInsets.getDisplayCutout().getSafeInsetLeft();
+            safeInsetTop = windowInsets.getDisplayCutout().getSafeInsetTop();
+            safeInsetRight = windowInsets.getDisplayCutout().getSafeInsetRight();
+            safeInsetBottom = windowInsets.getDisplayCutout().getSafeInsetBottom();
+        }
+        this.root.setPadding(safeInsetLeft, safeInsetTop, safeInsetRight, safeInsetBottom);
+        return windowInsets;
     }
 
-    @Override protected void onResume() {
+    @Override
+    protected void onStart() {
+        super.onStart();
+        this.started = true;
+        AppPreferences appPreferencesLoad = AppPreferences.load(this);
+        this.appearance = appPreferencesLoad;
+        this.lockScreen.onForeground(appPreferencesLoad.showOnLockScreen);
+        this.bridge.start();
+    }
+
+    @Override
+    protected void onResume() {
         super.onResume();
-        bridge.start();
+        AppPreferences appPreferencesLoad = AppPreferences.load(this);
+        this.appearance = appPreferencesLoad;
+        this.lockScreen.setEnabled(appPreferencesLoad.showOnLockScreen);
+        this.player.applyAppearance();
+        this.brightnessControl.resume();
+        this.volumeControl.resume();
+        this.bridge.start();
         hideSystemBars();
     }
 
-    @Override protected void onStop() {
-        bridge.stop();
+    @Override
+    protected void onPause() {
+        this.settingsGesture.reset();
+        this.brightnessControl.pause();
+        this.volumeControl.pause();
+        this.player.coverGestures.cancel();
+        super.onPause();
+    }
+
+    public void openSettings() {
+        DeviceUnlock.run(this, new Runnable() {
+            @Override
+            public final void run() {
+                MainActivity.this.launchSettings();
+            }
+        });
+    }
+
+    void launchSettings() {
+        startActivity(new Intent(this, (Class<?>) SettingsActivity.class));
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent motionEvent) {
+        if (motionEvent.getActionMasked() == 3) {
+            BrightnessControl brightnessControl = this.brightnessControl;
+            if (brightnessControl != null) {
+                brightnessControl.cancelTouch();
+            }
+            VolumeControl volumeControl = this.volumeControl;
+            if (volumeControl != null) {
+                volumeControl.cancelTouch();
+            }
+        }
+        ThreeFingerTapGesture threeFingerTapGesture = this.settingsGesture;
+        if (threeFingerTapGesture != null) {
+            boolean zIsCapturing = threeFingerTapGesture.isCapturing();
+            if (this.settingsGesture.onTouchEvent(motionEvent)) {
+                if (zIsCapturing || !this.settingsGesture.isCapturing()) {
+                    return true;
+                }
+                BrightnessControl brightnessControl2 = this.brightnessControl;
+                if (brightnessControl2 != null) {
+                    brightnessControl2.cancelTouch();
+                }
+                VolumeControl volumeControl2 = this.volumeControl;
+                if (volumeControl2 != null) {
+                    volumeControl2.cancelTouch();
+                }
+                MotionEvent motionEventObtain = MotionEvent.obtain(motionEvent);
+                motionEventObtain.setAction(3);
+                super.dispatchTouchEvent(motionEventObtain);
+                motionEventObtain.recycle();
+                return true;
+            }
+        }
+        return super.dispatchTouchEvent(motionEvent);
+    }
+
+    @Override
+    protected void onStop() {
+        this.started = false;
+        if (!DeviceUnlock.isPending(this)) {
+            this.lockScreen.onStopped();
+        }
+        if (!this.lockScreen.keepMonitoringWhileScreenOff()) {
+            this.bridge.stop();
+        }
         super.onStop();
     }
 
-    @Override public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hideSystemBars();
+    @Override
+    protected void onUserLeaveHint() {
+        this.lockScreen.onUserLeave();
+        super.onUserLeaveHint();
+    }
+
+    @Override
+    protected void onDestroy() {
+        this.bridge.stop();
+        this.lockScreen.destroy();
+        super.onDestroy();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean z) {
+        super.onWindowFocusChanged(z);
+        if (z) {
+            hideSystemBars();
+        }
     }
 
     private void hideSystemBars() {
         if (Build.VERSION.SDK_INT >= 30) {
-            WindowInsetsController controller = getWindow().getInsetsController();
-            if (controller != null) {
-                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                controller.hide(WindowInsets.Type.systemBars());
+            WindowInsetsController insetsController = getWindow().getInsetsController();
+            if (insetsController != null) {
+                insetsController.setSystemBarsBehavior(2);
+                insetsController.hide(WindowInsets.Type.systemBars());
+                return;
             }
-        } else {
-            getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+            return;
         }
+        getWindow().getDecorView().setSystemUiVisibility(5894);
     }
 
-    @Override public void onState(MediaBridge.State state) {
+    @Override
+    public void onState(MediaBridge.State state) {
+        this.mediaState = state;
+        this.player.updateMetadata(state.title, state.artist);
+        this.lockScreen.onMediaState(state.hasAccess && state.connected);
+        if (!this.started && !this.lockScreen.keepMonitoringWhileScreenOff()) {
+            this.lockScreen.onUserLeave();
+            this.bridge.stop();
+        }
         if (!state.hasAccess || !state.connected) {
             showSetup(state.hasAccess);
             return;
         }
-        setupScroll.setVisibility(View.GONE);
-        player.setVisibility(View.VISIBLE);
+        this.setupScroll.setVisibility(8);
+        this.player.setVisibility(0);
         if (state.artwork != null) {
-            player.artwork.setImageBitmap(state.artwork);
-            player.artwork.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            this.player.artwork.setImageBitmap(state.artwork);
+            this.player.artwork.setScaleType(ImageView.ScaleType.FIT_CENTER);
         } else {
-            player.artwork.setImageDrawable(new SymbolDrawable(SymbolDrawable.NOTE, 0xFF555555));
-            player.artwork.setScaleType(ImageView.ScaleType.CENTER);
+            this.player.artwork.setImageDrawable(new SymbolDrawable(4, -11184811));
+            this.player.artwork.setScaleType(ImageView.ScaleType.CENTER);
         }
-        player.artwork.setContentDescription(state.title == null || state.title.isEmpty()
-            ? "Capa do álbum" : "Capa: " + state.title);
-        if (displayedPlaying != state.playing || player.play.getDrawable() == null) {
-            displayedPlaying = state.playing;
-            player.play.setImageDrawable(new SymbolDrawable(state.playing ? SymbolDrawable.PAUSE : SymbolDrawable.PLAY, Color.BLACK));
+        this.player.artwork.setContentDescription((state.title == null || state.title.isEmpty()) ? "Capa do álbum" : "Capa: " + state.title);
+        if (this.displayedPlaying != state.playing || this.player.play.getDrawable() == null) {
+            this.displayedPlaying = state.playing;
+            this.player.play.setImageDrawable(new SymbolDrawable(state.playing ? 1 : 0, controlIconColor()));
         }
-        player.play.setContentDescription(state.playing ? "Pausar" : "Reproduzir");
-        setAvailable(player.play, state.canToggle);
-        setAvailable(player.previous, state.canPrevious);
-        setAvailable(player.next, state.canNext);
+        this.player.play.setContentDescription(state.playing ? "Pausar" : "Reproduzir");
+        setAvailable(this.player.play, state.canToggle);
+        setAvailable(this.player.previous, state.canPrevious);
+        setAvailable(this.player.next, state.canNext);
     }
 
-    private void setAvailable(View button, boolean available) {
-        button.setEnabled(available);
-        button.setAlpha(available ? 1f : 0.32f);
+    private void setAvailable(View view, boolean z) {
+        view.setEnabled(z);
+        view.setAlpha((z ? 1.0f : 0.32f) * (1.0f - (this.appearance.controlsDim / 100.0f)));
     }
 
     private void buildSetup() {
-        setupScroll = new ScrollView(this);
-        setupScroll.setFillViewport(true);
-        setupScroll.setBackgroundColor(Color.BLACK);
-        root.addView(setupScroll, new FrameLayout.LayoutParams(-1, -1));
-        setup = new LinearLayout(this);
-        setup.setOrientation(LinearLayout.VERTICAL);
-        setup.setGravity(Gravity.CENTER);
-        setup.setPadding(dp(32), dp(24), dp(32), dp(24));
-        setup.setBackgroundColor(Color.BLACK);
-        setupScroll.addView(setup, new ScrollView.LayoutParams(-1, -2));
-        setupTitle = text(28, Color.WHITE);
-        setupTitle.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
-        setup.addView(setupTitle, new LinearLayout.LayoutParams(-1, -2));
-        setupBody = text(16, 0xFFB5B5B5);
-        setupBody.setLineSpacing(dp(3), 1f);
-        LinearLayout.LayoutParams bodyParams = new LinearLayout.LayoutParams(-1, -2);
-        bodyParams.topMargin = dp(20);
-        setup.addView(setupBody, bodyParams);
-        setupAction = new Button(this);
-        setupAction.setAllCaps(false);
-        setupAction.setTextSize(16);
-        setupAction.setTextColor(Color.BLACK);
-        setupAction.setBackground(roundedBackground(Color.WHITE, dp(28)));
-        setupAction.setPadding(dp(24), dp(8), dp(24), dp(8));
-        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(-2, -2);
-        buttonParams.topMargin = dp(32);
-        setupAction.setMinHeight(dp(56));
-        setup.addView(setupAction, buttonParams);
-        setupAction.setOnClickListener(v -> { if (accessGranted) launchMusic(); else requestMediaAccess(); });
-        openMusic = new Button(this);
-        openMusic.setText("Abrir YouTube Music");
-        openMusic.setAllCaps(false);
-        openMusic.setTextColor(0xFFB5B5B5);
-        openMusic.setBackground(roundedBackground(Color.BLACK, dp(24)));
-        openMusic.setMinHeight(dp(48));
-        LinearLayout.LayoutParams secondaryParams = new LinearLayout.LayoutParams(-2, -2);
-        secondaryParams.topMargin = dp(12);
-        setup.addView(openMusic, secondaryParams);
-        openMusic.setOnClickListener(v -> launchMusic());
+        ScrollView scrollView = new ScrollView(this);
+        this.setupScroll = scrollView;
+        scrollView.setFillViewport(true);
+        this.setupScroll.setBackgroundColor(-16777216);
+        this.root.addView(this.setupScroll, new FrameLayout.LayoutParams(-1, -1));
+        LinearLayout linearLayout = new LinearLayout(this);
+        this.setup = linearLayout;
+        linearLayout.setOrientation(1);
+        this.setup.setGravity(17);
+        this.setup.setPadding(dp(32.0f), dp(24.0f), dp(32.0f), dp(24.0f));
+        this.setup.setBackgroundColor(-16777216);
+        this.setupScroll.addView(this.setup, new FrameLayout.LayoutParams(-1, -2));
+        TextView textViewText = text(28, -1);
+        this.setupTitle = textViewText;
+        textViewText.setTypeface(Typeface.DEFAULT, 1);
+        this.setup.addView(this.setupTitle, new LinearLayout.LayoutParams(-1, -2));
+        TextView textViewText2 = text(16, -4868683);
+        this.setupBody = textViewText2;
+        textViewText2.setLineSpacing(dp(3.0f), 1.0f);
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, -2);
+        layoutParams.topMargin = dp(20.0f);
+        this.setup.addView(this.setupBody, layoutParams);
+        Button button = new Button(this);
+        this.setupAction = button;
+        button.setAllCaps(false);
+        this.setupAction.setTextSize(16.0f);
+        this.setupAction.setTextColor(-16777216);
+        this.setupAction.setBackground(roundedBackground(-1, dp(28.0f)));
+        this.setupAction.setPadding(dp(24.0f), dp(8.0f), dp(24.0f), dp(8.0f));
+        LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-2, -2);
+        layoutParams2.topMargin = dp(32.0f);
+        this.setupAction.setMinHeight(dp(56.0f));
+        this.setup.addView(this.setupAction, layoutParams2);
+        this.setupAction.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public final void onClick(View view) {
+                MainActivity.this.onSetupAction(view);
+            }
+        });
+        Button button2 = new Button(this);
+        this.openMusic = button2;
+        button2.setText("Abrir YouTube Music");
+        this.openMusic.setAllCaps(false);
+        this.openMusic.setTextColor(-4868683);
+        this.openMusic.setBackground(roundedBackground(-16777216, dp(24.0f)));
+        this.openMusic.setMinHeight(dp(48.0f));
+        LinearLayout.LayoutParams layoutParams3 = new LinearLayout.LayoutParams(-2, -2);
+        layoutParams3.topMargin = dp(12.0f);
+        this.setup.addView(this.openMusic, layoutParams3);
+        this.openMusic.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public final void onClick(View view) {
+                MainActivity.this.onOpenMusic(view);
+            }
+        });
     }
 
-    private TextView text(int size, int color) {
-        TextView text = new TextView(this);
-        text.setTextColor(color);
-        text.setTextSize(size);
-        text.setGravity(Gravity.CENTER);
-        return text;
+    void onSetupAction(View view) {
+        if (this.accessGranted) {
+            launchMusic();
+        } else {
+            requestMediaAccess();
+        }
     }
 
-    private void showSetup(boolean hasAccess) {
-        accessGranted = hasAccess;
-        player.setVisibility(View.GONE);
-        setupScroll.setVisibility(View.VISIBLE);
-        setupTitle.setText(hasAccess ? "A tua música.\nSó o essencial." : "Liga a tua música.");
-        setupBody.setText(hasAccess
-            ? "Começa uma música no YouTube Music e volta aqui. A capa e os controlos aparecem automaticamente."
-            : "Para mostrar a capa e controlar o YouTube Music, permite o acesso às notificações nas definições do Android.\n\nA app usa apenas a sessão multimédia e a notificação do YouTube Music, no teu telemóvel.");
-        setupAction.setText(hasAccess ? "Abrir YouTube Music" : "Permitir acesso");
-        openMusic.setVisibility(hasAccess ? View.GONE : View.VISIBLE);
+    void onOpenMusic(View view) {
+        launchMusic();
+    }
+
+    private TextView text(int i, int i2) {
+        TextView textView = new TextView(this);
+        textView.setTextColor(i2);
+        textView.setTextSize(i);
+        textView.setGravity(17);
+        return textView;
+    }
+
+    private void showSetup(boolean z) {
+        String str;
+        this.accessGranted = z;
+        this.player.setVisibility(8);
+        this.setupScroll.setVisibility(0);
+        this.setupTitle.setText(z ? "A tua música.\nSó o essencial." : "Liga a tua música.");
+        TextView textView = this.setupBody;
+        if (z) {
+            str = "Começa uma música no YouTube Music e volta aqui. A capa e os controlos aparecem automaticamente.";
+        } else {
+            str = "Para mostrar a capa e controlar o YouTube Music, permite o acesso às notificações nas definições do Android.\n\nA app usa apenas a sessão multimédia e a notificação do YouTube Music, no teu telemóvel.";
+        }
+        textView.setText(str);
+        this.setupAction.setText(z ? "Abrir YouTube Music" : "Permitir acesso");
+        this.openMusic.setVisibility(z ? 8 : 0);
     }
 
     private void requestMediaAccess() {
+        DeviceUnlock.run(this, new Runnable() {
+            @Override
+            public final void run() {
+                MainActivity.this.requestMediaAccessAfterUnlock();
+            }
+        });
+    }
+
+    public void requestMediaAccessAfterUnlock() {
         try {
             if (Build.VERSION.SDK_INT >= 30) {
-                Intent detail = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS);
-                detail.putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
-                    new ComponentName(this, MediaAccessService.class).flattenToString());
-                startActivity(detail);
+                Intent intent = new Intent("android.settings.NOTIFICATION_LISTENER_DETAIL_SETTINGS");
+                intent.putExtra("android.provider.extra.NOTIFICATION_LISTENER_COMPONENT_NAME", new ComponentName(this, (Class<?>) MediaAccessService.class).flattenToString());
+                startActivity(intent);
                 return;
             }
-        } catch (ActivityNotFoundException ignored) { }
-        try { startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); }
-        catch (ActivityNotFoundException ignored) {
-            Toast.makeText(this, "Abre as definições do Android e permite o acesso às notificações para OLED Music.", Toast.LENGTH_LONG).show();
+        } catch (ActivityNotFoundException unused) {
+        }
+        try {
+            startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"));
+        } catch (ActivityNotFoundException unused2) {
+            Toast.makeText(this, "Abre as definições do Android e permite o acesso às notificações para OLED Music.", 1).show();
         }
     }
 
     private void launchMusic() {
-        Intent intent = getPackageManager().getLaunchIntentForPackage(MediaBridge.preferredPackage(this));
-        if (intent != null) {
-            try { startActivity(intent); return; }
-            catch (ActivityNotFoundException ignored) { }
+        DeviceUnlock.run(this, new Runnable() {
+            @Override
+            public final void run() {
+                MainActivity.this.launchMusicAfterUnlock();
+            }
+        });
+    }
+
+    public void launchMusicAfterUnlock() {
+        Intent launchIntentForPackage = getPackageManager().getLaunchIntentForPackage(MediaBridge.preferredPackage(this));
+        if (launchIntentForPackage != null) {
+            try {
+                startActivity(launchIntentForPackage);
+                return;
+            } catch (ActivityNotFoundException unused) {
+            }
         }
-        Toast.makeText(this, "Instala ou ativa o YouTube Music para continuar.", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "Instala ou ativa o YouTube Music para continuar.", 1).show();
     }
 
-    private Drawable roundedBackground(int color, int radius) {
-        GradientDrawable shape = new GradientDrawable();
-        shape.setColor(color);
-        shape.setCornerRadius(radius);
-        return new RippleDrawable(ColorStateList.valueOf(color == Color.WHITE ? 0x33000000 : 0x33FFFFFF), shape, null);
+    public Drawable roundedBackground(int i, int i2) {
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(i);
+        gradientDrawable.setCornerRadius(i2);
+        return new RippleDrawable(ColorStateList.valueOf(i == -1 ? 855638016 : 872415231), gradientDrawable, null);
     }
 
-    private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    public int dp(float f) {
+        return Math.round(f * getResources().getDisplayMetrics().density);
+    }
 
-    private final class PlayerLayout extends ViewGroup {
-        final ImageView artwork;
-        final ImageButton previous;
-        final ImageButton play;
-        final ImageButton next;
-        private boolean landscape;
+    public int controlIconColor() {
+        return Color.luminance(this.appearance.controlsColor) > 0.179f ? -16777216 : -1;
+    }
+
+    final class PlayerLayout extends ViewGroup {
+        private int artLeft;
         private int artSize;
-        private int sideSize;
+        private int artTop;
+        final TextView artistText;
+        final ArtworkView artwork;
+        private int barHeight;
+        final SeekBar brightness;
+        final LinearLayout brightnessRow;
+        final CoverGestures coverGestures;
+        private int groupHeight;
+        private int infoWidth;
+        private boolean landscape;
+        final LinearLayout metadata;
+        private int metadataHeight;
+        final ImageButton next;
+        final ImageButton play;
         private int playSize;
+        final ImageButton previous;
+        private int sideSize;
+        final TextView titleText;
+        private final ImageButton[] transportButtons;
+        final SeekBar volume;
+        final LinearLayout volumeRow;
 
         PlayerLayout() {
             super(MainActivity.this);
-            setBackgroundColor(Color.BLACK);
-            artwork = new ImageView(MainActivity.this);
-            artwork.setBackgroundColor(Color.BLACK);
-            artwork.setOutlineProvider(new ViewOutlineProvider() {
-                @Override public void getOutline(View view, Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(12));
+            setBackgroundColor(-16777216);
+            SeekBar seekBarCreate = MinimalSlider.create(MainActivity.this, MainActivity.this.appearance.brightnessColor);
+            this.brightness = seekBarCreate;
+            SeekBar seekBarCreate2 = MinimalSlider.create(MainActivity.this, MainActivity.this.appearance.volumeColor);
+            this.volume = seekBarCreate2;
+            LinearLayout linearLayoutBar = bar(5, seekBarCreate);
+            this.brightnessRow = linearLayoutBar;
+            LinearLayout linearLayoutBar2 = bar(6, seekBarCreate2);
+            this.volumeRow = linearLayoutBar2;
+            addView(linearLayoutBar);
+            addView(linearLayoutBar2);
+            ArtworkView artworkView = new ArtworkView(MainActivity.this);
+            this.artwork = artworkView;
+            artworkView.setBackgroundColor(-16777216);
+            artworkView.setId(R.id.player_artwork);
+            artworkView.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), MainActivity.this.dp(12.0f));
                 }
             });
-            artwork.setClipToOutline(true);
-            addView(artwork);
-            previous = control(SymbolDrawable.PREVIOUS, "Faixa anterior", false);
-            play = control(SymbolDrawable.PLAY, "Reproduzir", true);
-            next = control(SymbolDrawable.NEXT, "Faixa seguinte", false);
-            previous.setOnClickListener(v -> bridge.previous());
-            play.setOnClickListener(v -> bridge.playPause());
-            next.setOnClickListener(v -> bridge.next());
+            artworkView.setClipToOutline(true);
+            addView(artworkView);
+            CoverGestures coverGestures = new CoverGestures(MainActivity.this, new Runnable() {
+                @Override
+                public final void run() {
+                    PlayerLayout.this.toggleFromCover();
+                }
+            }, new Runnable() {
+                @Override
+                public final void run() {
+                    PlayerLayout.this.previousFromCover();
+                }
+            }, new Runnable() {
+                @Override
+                public final void run() {
+                    PlayerLayout.this.nextFromCover();
+                }
+            });
+            this.coverGestures = coverGestures;
+            artworkView.setOnTouchListener(coverGestures);
+            artworkView.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+                @Override
+                public void onInitializeAccessibilityNodeInfo(View view, AccessibilityNodeInfo accessibilityNodeInfo) {
+                    super.onInitializeAccessibilityNodeInfo(view, accessibilityNodeInfo);
+                    if (MainActivity.this.appearance.coverGestures) {
+                        if (MainActivity.this.mediaState.canToggle) {
+                            accessibilityNodeInfo.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.cover_toggle_action, "Reproduzir/pausar"));
+                        }
+                        if (MainActivity.this.mediaState.canPrevious) {
+                            accessibilityNodeInfo.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.cover_previous_action, "Faixa anterior"));
+                        }
+                        if (MainActivity.this.mediaState.canNext) {
+                            accessibilityNodeInfo.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.cover_next_action, "Faixa seguinte"));
+                        }
+                    }
+                }
+
+                @Override
+                public boolean performAccessibilityAction(View view, int i, Bundle bundle) {
+                    if (MainActivity.this.appearance.coverGestures) {
+                        if (i == R.id.cover_toggle_action && MainActivity.this.mediaState.canToggle) {
+                            MainActivity.this.bridge.playPause();
+                            return true;
+                        }
+                        if (i == R.id.cover_previous_action && MainActivity.this.mediaState.canPrevious) {
+                            MainActivity.this.bridge.previous();
+                            return true;
+                        }
+                        if (i == R.id.cover_next_action && MainActivity.this.mediaState.canNext) {
+                            MainActivity.this.bridge.next();
+                            return true;
+                        }
+                    }
+                    return super.performAccessibilityAction(view, i, bundle);
+                }
+            });
+            ImageButton imageButtonControl = control(2, "Faixa anterior", false);
+            this.previous = imageButtonControl;
+            ImageButton imageButtonControl2 = control(0, "Reproduzir", true);
+            this.play = imageButtonControl2;
+            ImageButton imageButtonControl3 = control(3, "Faixa seguinte", false);
+            this.next = imageButtonControl3;
+            this.transportButtons = new ImageButton[]{imageButtonControl, imageButtonControl2, imageButtonControl3};
+            imageButtonControl.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public final void onClick(View view) {
+                    PlayerLayout.this.onPreviousClick(view);
+                }
+            });
+            imageButtonControl2.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public final void onClick(View view) {
+                    PlayerLayout.this.onPlayClick(view);
+                }
+            });
+            imageButtonControl3.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public final void onClick(View view) {
+                    PlayerLayout.this.onNextClick(view);
+                }
+            });
+            LinearLayout linearLayout = new LinearLayout(MainActivity.this);
+            this.metadata = linearLayout;
+            linearLayout.setOrientation(1);
+            linearLayout.setGravity(17);
+            TextView textView = new TextView(MainActivity.this);
+            this.titleText = textView;
+            TextView textView2 = new TextView(MainActivity.this);
+            this.artistText = textView2;
+            textView.setId(R.id.player_title);
+            textView2.setId(R.id.player_artist);
+            textView.setGravity(17);
+            textView2.setGravity(17);
+            textView.setMaxLines(2);
+            textView2.setMaxLines(1);
+            textView.setEllipsize(TextUtils.TruncateAt.END);
+            textView2.setEllipsize(TextUtils.TruncateAt.END);
+            linearLayout.addView(textView, new LinearLayout.LayoutParams(-1, -2));
+            linearLayout.addView(textView2, new LinearLayout.LayoutParams(-1, -2));
+            addView(linearLayout);
+            applyAppearance();
         }
 
-        private ImageButton control(int symbol, String description, boolean primary) {
-            ImageButton button = new ImageButton(MainActivity.this);
-            button.setContentDescription(description);
-            button.setImageDrawable(new SymbolDrawable(symbol, primary ? Color.BLACK : Color.WHITE));
-            button.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            button.setPadding(dp(primary ? 25 : 15), dp(primary ? 25 : 15), dp(primary ? 25 : 15), dp(primary ? 25 : 15));
-            button.setBackground(roundedBackground(primary ? Color.WHITE : Color.BLACK, dp(100)));
-            addView(button);
-            return button;
+        void toggleFromCover() {
+            if (MainActivity.this.mediaState.canToggle) {
+                MainActivity.this.bridge.playPause();
+            }
         }
 
-        @Override protected void onMeasure(int widthSpec, int heightSpec) {
-            int width = MeasureSpec.getSize(widthSpec);
-            int height = MeasureSpec.getSize(heightSpec);
-            setMeasuredDimension(width, height);
-            landscape = width > height;
-            sideSize = dp(64);
-            playSize = dp(88);
-            if (landscape) {
-                artSize = Math.max(dp(48), Math.min(height - dp(48), (int) (width * .49f) - dp(40)));
-                // Keep all three targets available even in compact split-screen windows.
-                int controlWidth = width - artSize - dp(72);
-                if (controlWidth < dp(240)) {
-                    sideSize = dp(48);
-                    playSize = dp(72);
+        void previousFromCover() {
+            if (MainActivity.this.mediaState.canPrevious) {
+                MainActivity.this.bridge.previous();
+            }
+        }
+
+        void nextFromCover() {
+            if (MainActivity.this.mediaState.canNext) {
+                MainActivity.this.bridge.next();
+            }
+        }
+
+        void onPreviousClick(View view) {
+            MainActivity.this.bridge.previous();
+        }
+
+        void onPlayClick(View view) {
+            MainActivity.this.bridge.playPause();
+        }
+
+        void onNextClick(View view) {
+            MainActivity.this.bridge.next();
+        }
+
+        private LinearLayout bar(int i, SeekBar seekBar) {
+            LinearLayout linearLayout = new LinearLayout(MainActivity.this);
+            linearLayout.setGravity(16);
+            ImageView imageView = new ImageView(MainActivity.this);
+            imageView.setImageDrawable(MainActivity.this.new SymbolDrawable(i, -5592406));
+            imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            imageView.setPadding(MainActivity.this.dp(4.0f), MainActivity.this.dp(4.0f), MainActivity.this.dp(4.0f), MainActivity.this.dp(4.0f));
+            imageView.setImportantForAccessibility(2);
+            linearLayout.addView(imageView, new LinearLayout.LayoutParams(MainActivity.this.dp(24.0f), MainActivity.this.dp(32.0f)));
+            linearLayout.addView(seekBar, new LinearLayout.LayoutParams(0, -1, 1.0f));
+            return linearLayout;
+        }
+
+        void updateMetadata(String str, String str2) {
+            TextView textView = this.titleText;
+            if (TextUtils.isEmpty(str)) {
+                str = "Sem título";
+            }
+            textView.setText(str);
+            this.artistText.setText(str2 == null ? "" : str2);
+            this.artistText.setVisibility((!MainActivity.this.appearance.showArtist || TextUtils.isEmpty(str2)) ? 8 : 0);
+            requestLayout();
+        }
+
+        void applyAppearance() {
+            MinimalSlider.tint(this.brightness, MainActivity.this.appearance.brightnessColor);
+            MinimalSlider.tint(this.volume, MainActivity.this.appearance.volumeColor);
+            this.brightnessRow.setVisibility(MainActivity.this.appearance.showBrightness ? 0 : 8);
+            this.volumeRow.setVisibility(MainActivity.this.appearance.showVolume ? 0 : 8);
+            this.brightness.setVisibility(MainActivity.this.appearance.showBrightness ? 0 : 8);
+            this.volume.setVisibility(MainActivity.this.appearance.showVolume ? 0 : 8);
+            float f = 1.0f - (MainActivity.this.appearance.controlsDim / 100.0f);
+            this.brightnessRow.setAlpha(f);
+            this.volumeRow.setAlpha(f);
+            ImageButton imageButton = this.previous;
+            MainActivity mainActivity = MainActivity.this;
+            imageButton.setImageDrawable(mainActivity.new SymbolDrawable(2, mainActivity.appearance.controlsColor));
+            ImageButton imageButton2 = this.next;
+            MainActivity mainActivity2 = MainActivity.this;
+            imageButton2.setImageDrawable(mainActivity2.new SymbolDrawable(3, mainActivity2.appearance.controlsColor));
+            ImageButton imageButton3 = this.play;
+            MainActivity mainActivity3 = MainActivity.this;
+            imageButton3.setBackground(mainActivity3.roundedBackground(mainActivity3.appearance.controlsColor, MainActivity.this.dp(100.0f)));
+            ImageButton imageButton4 = this.play;
+            MainActivity mainActivity4 = MainActivity.this;
+            imageButton4.setImageDrawable(mainActivity4.new SymbolDrawable(mainActivity4.displayedPlaying ? 1 : 0, MainActivity.this.controlIconColor()));
+            boolean z = MainActivity.this.appearance.showControls || !MainActivity.this.appearance.coverGestures;
+            for (ImageButton imageButton5 : this.transportButtons) {
+                imageButton5.setVisibility(z ? 0 : 8);
+                imageButton5.setAlpha((imageButton5.isEnabled() ? 1.0f : 0.32f) * f);
+            }
+            this.artwork.setImageAlpha(Math.round((1.0f - (MainActivity.this.appearance.coverDim / 100.0f)) * 255.0f));
+            this.coverGestures.setEnabled(MainActivity.this.appearance.coverGestures);
+            this.artwork.setImportantForAccessibility(MainActivity.this.appearance.coverGestures ? 1 : 0);
+            this.titleText.setVisibility(MainActivity.this.appearance.showTitle ? 0 : 8);
+            this.artistText.setVisibility((!MainActivity.this.appearance.showArtist || this.artistText.length() <= 0) ? 8 : 0);
+            this.titleText.setTypeface(SettingsActivity.font(MainActivity.this.appearance));
+            this.artistText.setTypeface(SettingsActivity.font(MainActivity.this.appearance));
+            this.titleText.setTextSize(MainActivity.this.appearance.titleSize);
+            this.artistText.setTextSize(MainActivity.this.appearance.artistSize);
+            this.titleText.setTextColor(MainActivity.this.appearance.titleColor);
+            this.artistText.setTextColor(MainActivity.this.appearance.artistColor);
+            this.metadata.setVisibility((MainActivity.this.appearance.showTitle || MainActivity.this.appearance.showArtist) ? 0 : 8);
+            requestLayout();
+        }
+
+        private ImageButton control(int i, String str, boolean z) {
+            ImageButton imageButton = new ImageButton(MainActivity.this);
+            imageButton.setContentDescription(str);
+            imageButton.setImageDrawable(MainActivity.this.new SymbolDrawable(i, z ? -16777216 : -1));
+            imageButton.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            imageButton.setPadding(MainActivity.this.dp(z ? 25.0f : 15.0f), MainActivity.this.dp(z ? 25.0f : 15.0f), MainActivity.this.dp(z ? 25.0f : 15.0f), MainActivity.this.dp(z ? 25.0f : 15.0f));
+            MainActivity mainActivity = MainActivity.this;
+            imageButton.setBackground(mainActivity.roundedBackground(z ? -1 : -16777216, mainActivity.dp(100.0f)));
+            addView(imageButton);
+            return imageButton;
+        }
+
+        @Override
+        protected void onMeasure(int i, int i2) {
+            int size = View.MeasureSpec.getSize(i);
+            int size2 = View.MeasureSpec.getSize(i2);
+            setMeasuredDimension(size, size2);
+            this.landscape = size > size2 && this.play.getVisibility() != 8;
+            this.sideSize = MainActivity.this.dp(64.0f);
+            this.playSize = MainActivity.this.dp(88.0f);
+            this.barHeight = (MainActivity.this.appearance.showBrightness ? MainActivity.this.dp(48.0f) : 0) + (MainActivity.this.appearance.showVolume ? MainActivity.this.dp(48.0f) : 0);
+            int iMax = Math.max(MainActivity.this.dp(80.0f), this.landscape ? Math.min(size - MainActivity.this.dp(220.0f), Math.round(size * 0.55f)) : size);
+            int iMax2 = Math.max(MainActivity.this.dp(48.0f), (MainActivity.this.appearance.textPosition == 2 ? size : iMax) - MainActivity.this.dp(32.0f));
+            this.infoWidth = iMax2;
+            this.metadata.measure(exact(iMax2), View.MeasureSpec.makeMeasureSpec(Math.max(0, size2 / 2), Integer.MIN_VALUE));
+            this.metadataHeight = this.metadata.getVisibility() == 8 ? 0 : this.metadata.getMeasuredHeight();
+            int i3 = MainActivity.this.appearance.textPosition == 2 ? 0 : this.metadataHeight;
+            int iDp = MainActivity.this.appearance.textPosition == 2 ? this.metadataHeight + MainActivity.this.dp(16.0f) : 0;
+            int iDp2 = this.play.getVisibility() == 8 ? 0 : MainActivity.this.dp(112.0f);
+            if (this.landscape) {
+                int iMax3 = Math.max(MainActivity.this.dp(36.0f), Math.min(Math.round((((size * 0.49f) - MainActivity.this.dp(40.0f)) * MainActivity.this.appearance.albumPercent) / 85.0f), Math.min(iMax - MainActivity.this.dp(40.0f), (((size2 - MainActivity.this.dp(40.0f)) - this.barHeight) - i3) - iDp)));
+                this.artSize = iMax3;
+                this.groupHeight = iMax3 + this.barHeight + i3;
+                this.artTop = Math.max(MainActivity.this.dp(12.0f), ((size2 - iDp) - this.groupHeight) / 2) + this.barHeight + (MainActivity.this.appearance.textPosition == 0 ? this.metadataHeight : 0);
+                this.artLeft = (iMax - this.artSize) / 2;
+                if (size - iMax < MainActivity.this.dp(280.0f)) {
+                    this.sideSize = MainActivity.this.dp(48.0f);
+                    this.playSize = MainActivity.this.dp(72.0f);
                 }
             } else {
-                artSize = Math.max(dp(48), Math.min((int) (width * .846f), height - dp(176)));
+                this.artTop = MainActivity.this.dp(20.0f) + this.barHeight + (MainActivity.this.appearance.textPosition == 0 ? this.metadataHeight : 0);
+                int iMax4 = Math.max(MainActivity.this.dp(36.0f), Math.min(size - MainActivity.this.dp(32.0f), Math.min(Math.round((MainActivity.this.appearance.albumPercent * size) / 100.0f), ((((size2 - this.artTop) - iDp2) - iDp) - (MainActivity.this.appearance.textPosition == 1 ? this.metadataHeight : 0)) - MainActivity.this.dp(24.0f))));
+                this.artSize = iMax4;
+                this.artLeft = (size - iMax4) / 2;
             }
-            artwork.measure(exact(artSize), exact(artSize));
-            previous.measure(exact(sideSize), exact(sideSize));
-            play.measure(exact(playSize), exact(playSize));
-            next.measure(exact(sideSize), exact(sideSize));
+            this.artwork.measure(exact(this.artSize), exact(this.artSize));
+            ImageButton[] imageButtonArr = this.transportButtons;
+            int length = imageButtonArr.length;
+            for (int i4 = 0; i4 < length; i4++) {
+                ImageButton imageButton = imageButtonArr[i4];
+                imageButton.measure(exact(imageButton == this.play ? this.playSize : this.sideSize), exact(imageButton == this.play ? this.playSize : this.sideSize));
+            }
+            this.brightnessRow.measure(exact(this.artSize), exact(MainActivity.this.dp(48.0f)));
+            this.volumeRow.measure(exact(this.artSize), exact(MainActivity.this.dp(48.0f)));
         }
 
-        private int exact(int size) { return MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY); }
+        private int exact(int i) {
+            return View.MeasureSpec.makeMeasureSpec(Math.max(0, i), 1073741824);
+        }
 
-        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
-            int width = r - l, height = b - t;
-            if (landscape) {
-                int artLeft = dp(28);
-                int artTop = (height - artSize) / 2;
-                artwork.layout(artLeft, artTop, artLeft + artSize, artTop + artSize);
-                int remainingLeft = artLeft + artSize + dp(20);
-                int centerX = remainingLeft + (width - dp(20) - remainingLeft) / 2;
-                int offset = Math.min(dp(94), Math.max(dp(68), (width - remainingLeft - dp(28) - sideSize) / 2));
-                layoutCentered(previous, centerX - offset, height / 2, sideSize);
-                layoutCentered(play, centerX, height / 2, playSize);
-                layoutCentered(next, centerX + offset, height / 2, sideSize);
+        @Override
+        protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            int width = right - left;
+            int height = bottom - top;
+            artwork.layout(artLeft, artTop, artLeft + artSize, artTop + artSize);
+            int barTop = artTop - barHeight;
+            if (appearance.showBrightness) {
+                brightnessRow.layout(artLeft, barTop, artLeft + artSize, barTop + dp(48));
+                barTop += dp(48);
+            }
+            if (appearance.showVolume) {
+                volumeRow.layout(artLeft, barTop, artLeft + artSize, barTop + dp(48));
+            }
+            int infoLeft = !landscape || appearance.textPosition == 2
+                    ? (width - infoWidth) / 2
+                    : Math.max(0, artLeft + (artSize - infoWidth) / 2);
+            int infoTop;
+            if (appearance.textPosition == 0) {
+                infoTop = artTop - barHeight - metadataHeight;
+            } else if (appearance.textPosition == 1) {
+                infoTop = artTop + artSize;
             } else {
-                int artTop = Math.max(dp(22), Math.round(height * .045f));
-                int artLeft = (width - artSize) / 2;
-                artwork.layout(artLeft, artTop, artLeft + artSize, artTop + artSize);
-                int controlsY = Math.min(height - dp(40) - playSize / 2,
-                    Math.max(artTop + artSize + dp(80), Math.round(height * .81f)));
+                infoTop = height - dp(16) - metadataHeight;
+            }
+            metadata.layout(infoLeft, infoTop, infoLeft + infoWidth, infoTop + metadataHeight);
+            if (play.getVisibility() == View.GONE) return;
+            if (landscape) {
+                int controlsLeft = Math.max(artLeft + artSize + dp(20), Math.round(width * .55f));
+                int centerX = controlsLeft + (width - dp(16) - controlsLeft) / 2;
+                int offset = Math.min(dp(94), Math.max(sideSize, (width - controlsLeft - sideSize) / 3));
+                int centerY = (height - (appearance.textPosition == 2 ? metadataHeight : 0)) / 2;
+                layoutCentered(previous, centerX - offset, centerY, sideSize);
+                layoutCentered(play, centerX, centerY, playSize);
+                layoutCentered(next, centerX + offset, centerY, sideSize);
+            } else {
+                int controlsTop = artTop + artSize
+                        + (appearance.textPosition == 1 ? metadataHeight : 0) + dp(16);
+                int controlsBottom = appearance.textPosition == 2 ? infoTop - dp(12) : height - dp(16);
+                int centerY = Math.max(controlsTop + playSize / 2, (controlsTop + controlsBottom) / 2);
                 int offset = Math.min(dp(100), (width - sideSize - dp(32)) / 2);
-                layoutCentered(previous, width / 2 - offset, controlsY, sideSize);
-                layoutCentered(play, width / 2, controlsY, playSize);
-                layoutCentered(next, width / 2 + offset, controlsY, sideSize);
+                layoutCentered(previous, width / 2 - offset, centerY, sideSize);
+                layoutCentered(play, width / 2, centerY, playSize);
+                layoutCentered(next, width / 2 + offset, centerY, sideSize);
             }
         }
 
-        private void layoutCentered(View view, int x, int y, int size) {
-            view.layout(x - size / 2, y - size / 2, x - size / 2 + size, y - size / 2 + size);
+        private void layoutCentered(View view, int i, int i2, int i3) {
+            int i4 = i3 / 2;
+            view.layout(i - i4, i2 - i4, i + i4, i2 + i4);
         }
     }
 
-    /** Small native paths keep controls crisp at every display density. */
-    private final class SymbolDrawable extends Drawable {
-        static final int PLAY = 0, PAUSE = 1, PREVIOUS = 2, NEXT = 3, NOTE = 4;
-        private final int symbol;
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        SymbolDrawable(int symbol, int color) { this.symbol = symbol; paint.setColor(color); }
+    private static final class ArtworkView extends ImageView {
+        ArtworkView(Context context) {
+            super(context);
+        }
 
-        @Override public void draw(Canvas canvas) {
+        @Override
+        public boolean performClick() {
+            super.performClick();
+            return true;
+        }
+    }
+
+    private final class SymbolDrawable extends Drawable {
+        static final int NEXT = 3;
+        static final int NOTE = 4;
+        static final int PAUSE = 1;
+        static final int PLAY = 0;
+        static final int PREVIOUS = 2;
+        static final int SUN = 5;
+        static final int VOLUME = 6;
+        private final Paint paint;
+        private final Path path;
+        private final int symbol;
+
+        @Override
+        public int getOpacity() {
+            return -3;
+        }
+
+        SymbolDrawable(int i, int i2) {
+            Paint paint = new Paint(PAUSE);
+            this.paint = paint;
+            this.path = new Path();
+            this.symbol = i;
+            paint.setColor(i2);
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
             Rect bounds = getBounds();
             canvas.save();
             canvas.translate(bounds.left, bounds.top);
-            canvas.scale(bounds.width() / 24f, bounds.height() / 24f);
-            Path path = new Path();
-            if (symbol == PLAY) {
-                path.moveTo(6, 3); path.lineTo(21, 12); path.lineTo(6, 21); path.close();
-                canvas.drawPath(path, paint);
-            } else if (symbol == PAUSE) {
-                canvas.drawRoundRect(5, 3, 10, 21, .8f, .8f, paint);
-                canvas.drawRoundRect(14, 3, 19, 21, .8f, .8f, paint);
-            } else if (symbol == PREVIOUS || symbol == NEXT) {
-                if (symbol == PREVIOUS) { canvas.translate(24, 0); canvas.scale(-1, 1); }
-                path.moveTo(3, 3); path.lineTo(18, 12); path.lineTo(3, 21); path.close();
-                canvas.drawPath(path, paint);
-                canvas.drawRoundRect(19, 3, 21, 21, .6f, .6f, paint);
+            canvas.scale(bounds.width() / 24.0f, bounds.height() / 24.0f);
+            this.path.reset();
+            this.paint.setStyle(Paint.Style.FILL);
+            int i = this.symbol;
+            if (i == 0) {
+                this.path.moveTo(6.0f, 3.0f);
+                this.path.lineTo(21.0f, 12.0f);
+                this.path.lineTo(6.0f, 21.0f);
+                this.path.close();
+                canvas.drawPath(this.path, this.paint);
+            } else if (i == PAUSE) {
+                canvas.drawRoundRect(5.0f, 3.0f, 10.0f, 21.0f, 0.8f, 0.8f, this.paint);
+                canvas.drawRoundRect(14.0f, 3.0f, 19.0f, 21.0f, 0.8f, 0.8f, this.paint);
+            } else if (i == PREVIOUS || i == NEXT) {
+                if (i == PREVIOUS) {
+                    canvas.translate(24.0f, 0.0f);
+                    canvas.scale(-1.0f, 1.0f);
+                }
+                this.path.moveTo(3.0f, 3.0f);
+                this.path.lineTo(18.0f, 12.0f);
+                this.path.lineTo(3.0f, 21.0f);
+                this.path.close();
+                canvas.drawPath(this.path, this.paint);
+                canvas.drawRoundRect(19.0f, 3.0f, 21.0f, 21.0f, 0.6f, 0.6f, this.paint);
+            } else if (i == SUN) {
+                this.paint.setStyle(Paint.Style.STROKE);
+                this.paint.setStrokeWidth(2.0f);
+                canvas.drawCircle(12.0f, 12.0f, 4.0f, this.paint);
+                for (int i2 = PLAY; i2 < 8; i2 += PAUSE) {
+                    canvas.drawLine(12.0f, 2.0f, 12.0f, 5.0f, this.paint);
+                    canvas.rotate(45.0f, 12.0f, 12.0f);
+                }
+            } else if (i == VOLUME) {
+                this.path.moveTo(3.0f, 9.0f);
+                this.path.lineTo(7.0f, 9.0f);
+                this.path.lineTo(12.0f, 4.0f);
+                this.path.lineTo(12.0f, 20.0f);
+                this.path.lineTo(7.0f, 15.0f);
+                this.path.lineTo(3.0f, 15.0f);
+                this.path.close();
+                canvas.drawPath(this.path, this.paint);
+                this.paint.setStyle(Paint.Style.STROKE);
+                this.paint.setStrokeWidth(2.0f);
+                canvas.drawArc(9.0f, 5.0f, 21.0f, 19.0f, -55.0f, 110.0f, false, this.paint);
             } else {
-                canvas.drawCircle(8, 17.5f, 4, paint);
-                canvas.drawRect(10, 4, 13, 18, paint);
-                path.moveTo(10, 4); path.lineTo(21, 2); path.lineTo(21, 7); path.lineTo(10, 9); path.close();
-                canvas.drawPath(path, paint);
+                canvas.drawCircle(8.0f, 17.5f, 4.0f, this.paint);
+                canvas.drawRect(10.0f, 4.0f, 13.0f, 18.0f, this.paint);
+                this.path.moveTo(10.0f, 4.0f);
+                this.path.lineTo(21.0f, 2.0f);
+                this.path.lineTo(21.0f, 7.0f);
+                this.path.lineTo(10.0f, 9.0f);
+                this.path.close();
+                canvas.drawPath(this.path, this.paint);
             }
             canvas.restore();
         }
-        @Override public int getIntrinsicWidth() { return dp(symbol == NOTE ? 48 : 32); }
-        @Override public int getIntrinsicHeight() { return dp(symbol == NOTE ? 48 : 32); }
-        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); invalidateSelf(); }
-        @Override public void setColorFilter(ColorFilter filter) { paint.setColorFilter(filter); invalidateSelf(); }
-        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+
+        @Override
+        public int getIntrinsicWidth() {
+            return MainActivity.this.dp(this.symbol == NOTE ? 48.0f : 32.0f);
+        }
+
+        @Override
+        public int getIntrinsicHeight() {
+            return MainActivity.this.dp(this.symbol == NOTE ? 48.0f : 32.0f);
+        }
+
+        @Override
+        public void setAlpha(int i) {
+            this.paint.setAlpha(i);
+            invalidateSelf();
+        }
+
+        @Override
+        public void setColorFilter(ColorFilter colorFilter) {
+            this.paint.setColorFilter(colorFilter);
+            invalidateSelf();
+        }
     }
 }
