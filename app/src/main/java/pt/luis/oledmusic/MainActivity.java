@@ -10,7 +10,6 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
 import android.graphics.Insets;
-import android.graphics.Outline;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
@@ -25,7 +24,6 @@ import android.text.TextUtils;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewOutlineProvider;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
@@ -296,7 +294,7 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         this.player.setVisibility(0);
         if (state.artwork != null) {
             this.player.artwork.setImageBitmap(state.artwork);
-            this.player.artwork.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            this.player.artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
         } else {
             this.player.artwork.setImageDrawable(new SymbolDrawable(4, -11184811));
             this.player.artwork.setScaleType(ImageView.ScaleType.CENTER);
@@ -359,7 +357,7 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         });
         Button button2 = new Button(this);
         this.openMusic = button2;
-        button2.setText("Abrir YouTube Music");
+        button2.setText("Abrir app de música");
         this.openMusic.setAllCaps(false);
         this.openMusic.setTextColor(-4868683);
         this.openMusic.setBackground(roundedBackground(-16777216, dp(24.0f)));
@@ -403,12 +401,12 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         this.setupTitle.setText(z ? "A tua música.\nSó o essencial." : "Liga a tua música.");
         TextView textView = this.setupBody;
         if (z) {
-            str = "Começa uma música no YouTube Music e volta aqui. A capa e os controlos aparecem automaticamente.";
+            str = "Começa uma música no SoundCloud ou YouTube Music e volta aqui. A app segue o último player que começou a tocar, mesmo depois de o pausares.";
         } else {
-            str = "Para mostrar a capa e controlar o YouTube Music, permite o acesso às notificações nas definições do Android.\n\nA app usa apenas a sessão multimédia e a notificação do YouTube Music, no teu telemóvel.";
+            str = "Para mostrar a capa e controlar o SoundCloud ou YouTube Music, permite o acesso às notificações nas definições do Android.\n\nA app usa apenas as sessões multimédia e as notificações destes players, no teu telemóvel.";
         }
         textView.setText(str);
-        this.setupAction.setText(z ? "Abrir YouTube Music" : "Permitir acesso");
+        this.setupAction.setText(z ? "Abrir app de música" : "Permitir acesso");
         this.openMusic.setVisibility(z ? 8 : 0);
     }
 
@@ -456,7 +454,7 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
             } catch (ActivityNotFoundException unused) {
             }
         }
-        Toast.makeText(this, "Instala ou ativa o YouTube Music para continuar.", 1).show();
+        Toast.makeText(this, "Instala ou ativa o SoundCloud ou YouTube Music para continuar.", 1).show();
     }
 
     public Drawable roundedBackground(int i, int i2) {
@@ -479,7 +477,7 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         private int artSize;
         private int artTop;
         final TextView artistText;
-        final ArtworkView artwork;
+        final AlbumArtworkView artwork;
         private int barHeight;
         final SeekBar brightness;
         final LinearLayout brightnessRow;
@@ -512,17 +510,10 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
             this.volumeRow = linearLayoutBar2;
             addView(linearLayoutBar);
             addView(linearLayoutBar2);
-            ArtworkView artworkView = new ArtworkView(MainActivity.this);
+            AlbumArtworkView artworkView = new AlbumArtworkView(MainActivity.this);
             this.artwork = artworkView;
             artworkView.setBackgroundColor(-16777216);
             artworkView.setId(R.id.player_artwork);
-            artworkView.setOutlineProvider(new ViewOutlineProvider() {
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), MainActivity.this.dp(12.0f));
-                }
-            });
-            artworkView.setClipToOutline(true);
             addView(artworkView);
             CoverGestures coverGestures = new CoverGestures(MainActivity.this, new Runnable() {
                 @Override
@@ -680,6 +671,7 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         }
 
         void applyAppearance() {
+            this.artwork.applyAppearance(MainActivity.this.appearance);
             MinimalSlider.tint(this.brightness, MainActivity.this.appearance.brightnessColor);
             MinimalSlider.tint(this.volume, MainActivity.this.appearance.volumeColor);
             this.brightnessRow.setVisibility(MainActivity.this.appearance.showBrightness ? 0 : 8);
@@ -830,18 +822,6 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         private void layoutCentered(View view, int i, int i2, int i3) {
             int i4 = i3 / 2;
             view.layout(i - i4, i2 - i4, i + i4, i2 + i4);
-        }
-    }
-
-    private static final class ArtworkView extends ImageView {
-        ArtworkView(Context context) {
-            super(context);
-        }
-
-        @Override
-        public boolean performClick() {
-            super.performClick();
-            return true;
         }
     }
 

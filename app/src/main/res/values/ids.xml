@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <item type="id" name="album_border_switch" />
+    <item type="id" name="album_border_color_choice" />
+    <item type="id" name="album_border_width_slider" />
+    <item type="id" name="album_corner_radius_slider" />
     <item type="id" name="album_size_slider" />
     <item type="id" name="artist_color_choice" />
     <item type="id" name="artist_size_slider" />

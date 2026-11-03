@@ -1,40 +1,48 @@
 # OLED Music
 
-Versão 1.6 de teste, reconstruída a partir do APK 1.5 fornecido pelo proprietário. O objetivo é manter o comportamento da 1.5, com `versionCode 7` e `versionName 1.6`. O histórico e o texto exato do código original não foram recuperados. A origem e as verificações estão em `releases/VERIFICACAO-v1.6.txt`.
+Versão 1.7: SoundCloud, seleção automática do último player reproduzido, capa com recorte central e borda configurável. Baseada na 1.6 recuperada do APK 1.5; a origem dessa recuperação está em `releases/VERIFICACAO-v1.6.txt`.
 
-Reconhece `app.revanced.android.apps.youtube.music` e dá prioridade ao ReVanced instalado e ativo, mesmo que o YouTube Music original também esteja instalado. A mesma escolha é usada para abrir a app, controlar a sessão e obter a capa. Se o ReVanced não estiver instalado ou estiver desativado, usa o original.
+Players reconhecidos:
+
+- SoundCloud: `com.soundcloud.android` (versão indicada pelo proprietário: `2025.05.27-release`).
+- YouTube Music ReVanced: `app.revanced.android.apps.youtube.music`.
+- YouTube Music original: `com.google.android.apps.youtube.music`.
+
+A identificação usa os pacotes e as sessões multimédia Android, sem exigir um número específico de versão. Com as duas apps abertas, a que começa a reproduzir passa a ser a selecionada. Pausar, abrir a outra app sem dar play, mudar metadados ou atualizar notificações não muda a escolha. O último player continua selecionado em pausa e a sua identificação é guardada para a próxima abertura da OLED Music. O listener acompanha todas as sessões suportadas, mesmo quando o leitor da OLED Music não está visível. Antes de qualquer reprodução conhecida, o botão de abrir música usa uma app instalada (ReVanced, original ou SoundCloud).
 
 Instala o novo APK por cima da versão anterior, escolhendo **Atualizar**. Mantém o mesmo identificador e a mesma chave de assinatura; não é necessário desinstalar.
 
-Comando para o YouTube Music com fundo preto puro (#000000), capa com cantos arredondados e controlos anterior, reproduzir/pausar e seguinte. A barra de estado e a navegação ficam escondidas; desliza a partir da margem para as mostrar. A app acompanha a orientação do telemóvel.
+Comando para SoundCloud e YouTube Music com fundo preto puro (#000000), capa com cantos arredondados e controlos anterior, reproduzir/pausar e seguinte. A barra de estado e a navegação ficam escondidas; desliza a partir da margem para as mostrar. A app acompanha a orientação do telemóvel.
 
 Toca com três dedos para abrir as definições (também disponíveis através de uma ação de acessibilidade). As definições permitem ajustar o tamanho e escurecimento da capa, cores e escurecimento dos controlos, gestos na capa, título e artista, tipos e tamanhos de letra, barras de brilho e volume, temporizador e apresentação sobre o ecrã bloqueado. Nas definições, toca em **Guardar** para aplicar as alterações. Com gestos ativos, um duplo toque na capa alterna reprodução/pausa e deslizar na horizontal muda de faixa. Os controlos só podem ser ocultados com os gestos ativos.
 
+Em **Definições → Capa**, a imagem preenche sempre o quadrado usando recorte central, com proporções preservadas. Podes ativar a borda, escolher a cor, ajustar a espessura entre 1 e 24 dp e o raio dos cantos entre 0 e 100 dp. A pré-visualização acompanha as alterações; toca em **Guardar** para aplicar. A borda vem desativada por defeito e os cantos mantêm os 12 dp da versão anterior. O raio é limitado a metade do lado da capa para se adaptar a capas pequenas.
+
 ## Instalar no Pixel
 
-1. Copia `OLED-Music-v1.6.apk` para o telemóvel e abre-o na app Ficheiros. Escolhe **Atualizar** sobre a 1.5. Se o Android pedir, permite instalar apps dessa origem.
+1. Copia `OLED-Music-v1.7.apk` para o telemóvel e abre-o na app Ficheiros. Escolhe **Atualizar** sobre a 1.6 (ou 1.5). Se o Android pedir, permite instalar apps dessa origem.
 2. Abre **OLED Music** e toca em **Permitir acesso**. Ativa o acesso às notificações para OLED Music e regressa à app.
 3. Se o Android bloquear esta opção com **Definição restrita**, abre **Definições → Apps → OLED Music → ⋮ → Permitir definições restritas**. Depois volta a conceder o acesso às notificações. Os nomes podem variar consoante o idioma/versão do Android.
-4. Abre o YouTube Music, começa uma música e volta a OLED Music.
+4. Abre o SoundCloud ou YouTube Music, começa uma música e volta a OLED Music.
 
-O Android concede acesso amplo às notificações. Este código filtra pelo pacote do YouTube Music antes de inspecionar notificações e não guarda nem transmite esse conteúdo. O acesso pode ser retirado nas definições do Android em qualquer altura.
+O Android concede acesso amplo às notificações. Este código filtra pelos três pacotes suportados antes de inspecionar as notificações. Não guarda nem transmite o conteúdo das notificações; guarda apenas o identificador do último player para conservar a seleção. O acesso pode ser retirado nas definições do Android em qualquer altura.
 
 ## Comportamento
 
 - Usa `MediaSessionManager`, `MediaController` e um `NotificationListenerService`, as APIs de sessão multimédia do Android. Não exige login Google nesta app.
-- A música continua a ser reproduzida pelo YouTube Music. É necessário que a tua conta e o YouTube Music já permitam reprodução em segundo plano.
-- Obtém a capa dos metadados da sessão, de um URI local acessível ou do ícone grande da notificação multimédia. Se o YouTube Music não disponibilizar uma imagem acessível, aparece um símbolo discreto.
+- A música continua a ser reproduzida na app de origem, com as capacidades de reprodução em segundo plano dessa app e conta.
+- Obtém a capa dos metadados da sessão, de um URI local acessível ou do ícone grande da notificação multimédia. Se o player não disponibilizar uma imagem acessível, aparece um símbolo discreto.
 - Os botões refletem as ações disponíveis na sessão. Por exemplo, seguinte pode estar desativado durante determinados conteúdos.
 - O brilho usa autorização opcional para modificar definições do sistema. Ao ajustar a barra, muda para brilho manual. A barra de volume controla o volume multimédia.
 - O temporizador usa um alarme do Android para pausar a sessão escolhida. Sem autorização para alarmes exatos, o momento de execução pode ser aproximado.
 - A opção de leitor sobre o bloqueio mantém o bloqueio do Android; abrir as definições ou outra app pede desbloqueio.
 - Não há anúncios, analytics, permissão de Internet, serviço próprio de reprodução ou pedido para ignorar a otimização de bateria.
 - Respeita o tempo normal até o ecrã se apagar. O preto reduz a área iluminada do OLED; a capa e os controlos continuam a acender píxeis.
-- Android 8.0 ou posterior; compilado para API 36. A compatibilidade concreta com o Pixel 10 e a versão instalada do YouTube Music requer um teste nesse aparelho.
+- Android 8.0 ou posterior; compilado para API 36. A compatibilidade concreta com o Pixel 10 e as versões instaladas dos players requer um teste nesse aparelho.
 
 ## Compilar novamente
 
-O APK 1.6 foi gerado em Linux com `build.py`, Android SDK Platform 36, Build Tools 36.0.0, Java 21 e compilador ECJ 3.38.0:
+O APK 1.7 foi gerado em Linux com `build.py`, Android SDK Platform 36, Build Tools 36.0.0, Java 21 e compilador ECJ 3.38.0:
 
 ```sh
 python3 build.py --sdk-root /caminho/Android/Sdk --ecj /caminho/ecj-3.38.0.jar
@@ -46,15 +54,15 @@ Com um JDK que inclua `javac`, não é necessário ECJ:
 python3 build.py --sdk-root /caminho/Android/Sdk
 ```
 
-O resultado fica em `build/OLED-Music-v1.6.apk`. A versão é lida de `app/build.gradle`. Não são reutilizados o DEX nem os recursos compilados do APK original: o código e os recursos do projeto são compilados novamente.
+O resultado fica em `build/OLED-Music-v1.7.apk`. A versão é lida de `app/build.gradle`. Não são reutilizados o DEX nem os recursos compilados do APK original: o código e os recursos do projeto são compilados novamente.
 
-Em Windows existe também `build.ps1` (atualizado, mas não executado nesta recuperação):
+Em Windows existe também `build.ps1` (atualizado, mas não executado neste ambiente):
 
 ```powershell
 .\build.ps1 -SdkRoot 'C:\caminho\Android\Sdk' -JavaHome 'C:\caminho\jdk'
 ```
 
-Requer JDK 17 ou posterior, Android SDK Platform 36 e Build Tools 36.0.0. O resultado fica em `build\OLED-Music-v1.6.apk`. Os scripts verificam a assinatura e o alinhamento do APK. Cada compilação cria uma pasta de trabalho nova.
+Requer JDK 17 ou posterior, Android SDK Platform 36 e Build Tools 36.0.0. O resultado fica em `build\OLED-Music-v1.7.apk`. Os scripts verificam a assinatura e o alinhamento do APK. Cada compilação cria uma pasta de trabalho nova.
 
 A chave original `oledmusic-local.jks` já está no repositório por indicação do proprietário (senha de desenvolvimento `android`). A assinatura foi comparada com a do APK 1.5 e coincide. Os scripts exigem esta chave e não criam outra automaticamente. Guarda-a para assinar futuras atualizações compatíveis com a instalação atual. Não está incluída no ZIP de código. Esta é uma distribuição pessoal, não uma publicação na Play Store.
 
@@ -62,7 +70,27 @@ Há também configuração de projeto Android Gradle para abrir o código no And
 
 ## Verificação no telemóvel
 
-Esta reconstrução foi compilada e verificada estruturalmente, sem teste num dispositivo ou emulador. Depois de atualizar sobre a 1.5, comparar: conservação das definições; aparência em ambas as orientações; título e artista; cores e paleta; toque com três dedos; duplo toque e deslizar na capa; play/pausa e anterior/seguinte; barras de brilho e volume; temporizador; ecrã bloqueado e autenticação nas definições; sair/voltar com música em pausa; retirar e conceder novamente a permissão. As ações e a qualidade da capa dependem do que o YouTube Music publica na sessão.
+A compilação, assinatura e alinhamento do APK foram verificados. Os testes de seleção de player correm na JVM:
+
+```sh
+python3 tests/run.py --ecj /caminho/ecj-3.38.0.jar
+# Ou, com javac instalado:
+python3 tests/run.py
+```
+
+Não foi executado num dispositivo ou emulador neste ambiente. Testar no telemóvel:
+
+1. Atualizar sobre a 1.6 e confirmar que as definições existentes se mantêm.
+2. Reproduzir no ReVanced; abrir o SoundCloud sem dar play: deve continuar no ReVanced.
+3. Dar play no SoundCloud: deve mudar capa, metadados e destino dos botões para SoundCloud.
+4. Pausar no SoundCloud e voltar a OLED Music: deve continuar no SoundCloud.
+5. Dar play novamente no ReVanced: deve mudar para ReVanced, incluindo com OLED Music em segundo plano/ecrã apagado.
+6. Com ambos em pausa, fechar e voltar a abrir OLED Music: deve manter o último player.
+7. Verificar capa retangular sem deformação e sem margens vazias, em ambas as orientações e tamanhos da capa.
+8. Ativar a borda, mudar cor, espessura e cantos; guardar, rodar e reabrir para confirmar os valores.
+9. Confirmar gestos na capa, título/artista, brilho, volume, temporizador no player selecionado e desbloqueio para abrir definições.
+
+As ações, metadados e qualidade da capa dependem do que cada player publica na sessão Android. A versão SoundCloud indicada pelo proprietário não foi instalada nem executada neste ambiente.
 
 ## Referências
 

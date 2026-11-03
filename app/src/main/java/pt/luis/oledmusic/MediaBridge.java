@@ -12,8 +12,6 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
-import android.media.session.MediaSession;
-import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
 import android.net.Uri;
 import android.os.Build;
@@ -23,30 +21,38 @@ import android.provider.Settings;
 import android.text.TextUtils;
 
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-/** A local remote-control for YouTube Music's Android media session. */
+/** A local remote for the most recently played supported Android media session. */
 public final class MediaBridge {
     public static final String YT_PACKAGE = "com.google.android.apps.youtube.music";
     public static final String REVANCED_PACKAGE = "app.revanced.android.apps.youtube.music";
     private static final int MAX_ART_SIZE = 1600;
 
-    /** Use the same app for launching, session discovery and notification artwork.
-     * ReVanced wins when both variants are installed, even if the original has
-     * a lingering paused/playing session. No version-string dependency. */
+    public static final String SOUNDCLOUD_PACKAGE = "com.soundcloud.android";
+
+    public static boolean isSupportedPackage(String packageName) {
+        return YT_PACKAGE.equals(packageName) || REVANCED_PACKAGE.equals(packageName)
+                || SOUNDCLOUD_PACKAGE.equals(packageName);
+    }
+
+    /** Launch the last player used; choose an installed app only before any playback. */
     public static String preferredPackage(Context context) {
-        try {
-            if (context.getPackageManager().getApplicationInfo(REVANCED_PACKAGE, 0).enabled) {
-                return REVANCED_PACKAGE;
-            }
-        } catch (PackageManager.NameNotFoundException ignored) { }
+        String last = PlaybackMonitor.get(context).lastPackage();
+        if (isSupportedPackage(last) && isInstalled(context, last)) return last;
+        for (String candidate : new String[]{REVANCED_PACKAGE, YT_PACKAGE, SOUNDCLOUD_PACKAGE}) {
+            if (isInstalled(context, candidate)) return candidate;
+        }
         return YT_PACKAGE;
+    }
+
+    private static boolean isInstalled(Context context, String packageName) {
+        try { return context.getPackageManager().getApplicationInfo(packageName, 0).enabled; }
+        catch (PackageManager.NameNotFoundException ignored) { return false; }
     }
 
     public interface Listener { void onState(State state); }
@@ -66,40 +72,21 @@ public final class MediaBridge {
     private final Context context;
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final MediaSessionManager manager;
-    private final ComponentName component;
+    private final PlaybackMonitor monitor;
     private ExecutorService artworkExecutor;
     private MediaController controller;
-    private MediaSession.Token destroyedToken;
     private boolean started;
-    private boolean sessionsRegistered;
     private Bitmap artwork;
     private String artworkKey = "";
     private String artworkTrackKey = "";
     private int artworkGeneration;
 
-    private final Runnable refreshRunnable = this::refreshSessions;
-    private final MediaAccessService.Observer notificationObserver = () -> {
-        main.removeCallbacks(refreshRunnable);
-        main.post(refreshRunnable);
-    };
-    private final MediaSessionManager.OnActiveSessionsChangedListener sessionsListener =
-            controllers -> refreshSessions();
-    private final MediaController.Callback controllerCallback = new MediaController.Callback() {
-        @Override public void onMetadataChanged(MediaMetadata metadata) { updateState(); }
-        @Override public void onPlaybackStateChanged(PlaybackState state) { updateState(); }
-        @Override public void onSessionDestroyed() {
-            destroyedToken = controller == null ? null : controller.getSessionToken();
-            detachController();
-            refreshSessions();
-        }
-    };
+    private final PlaybackMonitor.Observer sessionsObserver = this::refreshController;
 
     public MediaBridge(Context context, Listener listener) {
         this.context = context.getApplicationContext();
         this.listener = listener;
-        manager = (MediaSessionManager) this.context.getSystemService(Context.MEDIA_SESSION_SERVICE);
-        component = new ComponentName(this.context, MediaAccessService.class);
+        monitor = PlaybackMonitor.get(this.context);
     }
 
     public static boolean hasAccess(Context context) {
@@ -119,75 +106,30 @@ public final class MediaBridge {
 
     /** Call from the activity's onStart, on the main thread. */
     public void start() {
-        if (started) { refreshSessions(); return; }
+        if (started) { monitor.refresh(); return; }
         started = true;
         artworkExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
                 new ArrayBlockingQueue<>(1), new ThreadPoolExecutor.DiscardOldestPolicy());
-        MediaAccessService.addObserver(notificationObserver);
-        refreshSessions();
+        monitor.addObserver(sessionsObserver);
+        monitor.refresh();
     }
 
     /** Releases callbacks and decoded artwork while the UI is no longer visible. */
     public void stop() {
         if (!started) return;
         started = false;
-        MediaAccessService.removeObserver(notificationObserver);
-        main.removeCallbacks(refreshRunnable);
-        unregisterSessions();
+        monitor.removeObserver(sessionsObserver);
         detachController();
         if (artworkExecutor != null) artworkExecutor.shutdownNow();
         artworkExecutor = null;
     }
 
-    private void unregisterSessions() {
-        if (!sessionsRegistered || manager == null) return;
-        try { manager.removeOnActiveSessionsChangedListener(sessionsListener); }
-        catch (RuntimeException ignored) { }
-        sessionsRegistered = false;
-    }
-
-    private void refreshSessions() {
+    private void refreshController() {
         if (!started) return;
-        if (!hasAccess(context)) {
-            unregisterSessions();
-            detachController();
-            emit();
-            return;
-        }
-        List<MediaController> candidates = new ArrayList<>();
-        String musicPackage = preferredPackage(context);
-        if (manager != null) {
-            try {
-                if (!sessionsRegistered) {
-                    manager.addOnActiveSessionsChangedListener(sessionsListener, component, main);
-                    sessionsRegistered = true;
-                }
-                for (MediaController candidate : manager.getActiveSessions(component)) {
-                    if (musicPackage.equals(candidate.getPackageName())) candidates.add(candidate);
-                }
-            } catch (RuntimeException ignored) { }
-        }
-        MediaAccessService.Snapshot snapshot = MediaAccessService.snapshot();
-        if (snapshot != null && snapshot.token != null) {
-            try {
-                MediaController notificationController = new MediaController(context, snapshot.token);
-                if (musicPackage.equals(notificationController.getPackageName())) candidates.add(notificationController);
-            } catch (RuntimeException ignored) { }
-        }
-        MediaController best = null;
-        for (MediaController candidate : candidates) {
-            if (candidate.getSessionToken().equals(destroyedToken)) continue;
-            if (best == null || (isPlaying(candidate.getPlaybackState()) && !isPlaying(best.getPlaybackState()))) {
-                best = candidate;
-            }
-        }
+        MediaController best = hasAccess(context) ? monitor.selectedController() : null;
         if (!sameSession(controller, best)) {
             detachController();
             controller = best;
-            if (controller != null) {
-                try { controller.registerCallback(controllerCallback, main); }
-                catch (RuntimeException ignored) { controller = null; }
-            }
         }
         updateState();
     }
@@ -197,10 +139,6 @@ public final class MediaBridge {
     }
 
     private void detachController() {
-        if (controller != null) {
-            try { controller.unregisterCallback(controllerCallback); }
-            catch (RuntimeException ignored) { }
-        }
         controller = null;
         artwork = null;
         artworkKey = "";
@@ -241,7 +179,7 @@ public final class MediaBridge {
                 if (isLocalUri(value)) { uri = value; break; }
             }
         }
-        MediaAccessService.Snapshot snapshot = MediaAccessService.snapshot();
+        MediaAccessService.Snapshot snapshot = MediaAccessService.snapshot(controller == null ? null : controller.getSessionToken());
         Icon fallbackIcon = null;
         Bitmap fallbackBitmap = null;
         String trackTitle = title(metadata);
@@ -315,7 +253,7 @@ public final class MediaBridge {
                     state.artist = metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
                 }
             }
-            MediaAccessService.Snapshot snapshot = MediaAccessService.snapshot();
+            MediaAccessService.Snapshot snapshot = MediaAccessService.snapshot(controller == null ? null : controller.getSessionToken());
             if (TextUtils.isEmpty(state.title) && snapshot != null
                     && controller.getSessionToken().equals(snapshot.token)) state.title = snapshot.title;
             if (TextUtils.isEmpty(state.artist) && snapshot != null
@@ -330,47 +268,31 @@ public final class MediaBridge {
         try {
             if (isPlaying(controller.getPlaybackState())) controller.getTransportControls().pause();
             else controller.getTransportControls().play();
-        } catch (RuntimeException ignored) { refreshSessions(); }
+        } catch (RuntimeException ignored) { monitor.refresh(); }
     }
 
     public void previous() {
         if (controller == null || !hasAccess(context)) return;
         try { controller.getTransportControls().skipToPrevious(); }
-        catch (RuntimeException ignored) { refreshSessions(); }
+        catch (RuntimeException ignored) { monitor.refresh(); }
     }
 
     public void next() {
         if (controller == null || !hasAccess(context)) return;
         try { controller.getTransportControls().skipToNext(); }
-        catch (RuntimeException ignored) { refreshSessions(); }
+        catch (RuntimeException ignored) { monitor.refresh(); }
     }
 
     static boolean pausePreferred(Context context) {
-        ArrayList<MediaController> arrayList;
-        if (!hasAccess(context)) {
-            return false;
-        }
-        String strPreferredPackage = preferredPackage(context);
+        if (!hasAccess(context)) return false;
         try {
-            MediaSessionManager mediaSessionManager = (MediaSessionManager) context.getSystemService(MediaSessionManager.class);
-            if (mediaSessionManager == null) {
-                arrayList = new ArrayList();
-            } else {
-                arrayList = new ArrayList(mediaSessionManager.getActiveSessions(new ComponentName(context, (Class<?>) MediaAccessService.class)));
-            }
-            MediaAccessService.Snapshot snapshot = MediaAccessService.snapshot();
-            if (snapshot != null) {
-                arrayList.add(new MediaController(context, snapshot.token));
-            }
-            for (MediaController mediaController : arrayList) {
-                if (strPreferredPackage.equals(mediaController.getPackageName()) && isPlaying(mediaController.getPlaybackState())) {
-                    mediaController.getTransportControls().pause();
-                }
-            }
+            PlaybackMonitor monitor = PlaybackMonitor.get(context);
+            monitor.refresh();
+            MediaController selected = monitor.selectedController();
+            if (selected == null) return false;
+            selected.getTransportControls().pause();
             return true;
-        } catch (RuntimeException unused) {
-            return false;
-        }
+        } catch (RuntimeException ignored) { return false; }
     }
 
     private static boolean isLocalUri(String value) {

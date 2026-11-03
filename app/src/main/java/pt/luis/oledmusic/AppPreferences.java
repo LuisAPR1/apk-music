@@ -26,6 +26,10 @@ final class AppPreferences implements Serializable {
     int titleSize = 20;
     int artistSize = 16;
     int textPosition = 1;
+    boolean showAlbumBorder;
+    int albumBorderColor = -1;
+    int albumBorderWidth = 2;
+    int albumCornerRadius = 12;
 
     AppPreferences() {
     }
@@ -54,6 +58,10 @@ final class AppPreferences implements Serializable {
         appPreferences.textPosition = clamp(sharedPreferences.getInt("text_position", 1), 0, 2);
         appPreferences.fontFamily = clamp(sharedPreferences.getInt("font_family", 0), 0, 3);
         appPreferences.fontStyle = clamp(sharedPreferences.getInt("font_style", 0), 0, 3);
+        appPreferences.showAlbumBorder = sharedPreferences.getBoolean("show_album_border", false);
+        appPreferences.albumBorderColor = sharedPreferences.getInt("album_border_color", -1) | 0xFF000000;
+        appPreferences.albumBorderWidth = clamp(sharedPreferences.getInt("album_border_width", 2), 1, 24);
+        appPreferences.albumCornerRadius = clamp(sharedPreferences.getInt("album_corner_radius", 12), 0, 100);
         return appPreferences;
     }
 
@@ -61,7 +69,12 @@ final class AppPreferences implements Serializable {
         if (!this.coverGestures) {
             this.showControls = true;
         }
-        context.getSharedPreferences("appearance", 0).edit().putInt("controls_color", this.controlsColor).putInt("brightness_color", this.brightnessColor).putBoolean("show_brightness", this.showBrightness).putInt("album_percent", this.albumPercent).putBoolean("show_on_lock_screen", this.showOnLockScreen).putBoolean("cover_gestures", this.coverGestures).putBoolean("show_controls", this.showControls).putInt("cover_dim", this.coverDim).putInt("controls_dim", this.controlsDim).putBoolean("show_volume", this.showVolume).putInt("volume_color", this.volumeColor).putBoolean("show_title", this.showTitle).putBoolean("show_artist", this.showArtist).putInt("title_color", this.titleColor).putInt("artist_color", this.artistColor).putInt("title_size", this.titleSize).putInt("artist_size", this.artistSize).putInt("text_position", this.textPosition).putInt("font_family", this.fontFamily).putInt("font_style", this.fontStyle).apply();
+        context.getSharedPreferences("appearance", 0).edit()
+                .putBoolean("show_album_border", this.showAlbumBorder)
+                .putInt("album_border_color", this.albumBorderColor)
+                .putInt("album_border_width", this.albumBorderWidth)
+                .putInt("album_corner_radius", this.albumCornerRadius)
+                .putInt("controls_color", this.controlsColor).putInt("brightness_color", this.brightnessColor).putBoolean("show_brightness", this.showBrightness).putInt("album_percent", this.albumPercent).putBoolean("show_on_lock_screen", this.showOnLockScreen).putBoolean("cover_gestures", this.coverGestures).putBoolean("show_controls", this.showControls).putInt("cover_dim", this.coverDim).putInt("controls_dim", this.controlsDim).putBoolean("show_volume", this.showVolume).putInt("volume_color", this.volumeColor).putBoolean("show_title", this.showTitle).putBoolean("show_artist", this.showArtist).putInt("title_color", this.titleColor).putInt("artist_color", this.artistColor).putInt("title_size", this.titleSize).putInt("artist_size", this.artistSize).putInt("text_position", this.textPosition).putInt("font_family", this.fontFamily).putInt("font_style", this.fontStyle).apply();
     }
 
     private static int clamp(int i, int i2, int i3) {

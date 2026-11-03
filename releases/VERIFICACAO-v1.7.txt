@@ -1,0 +1,58 @@
+OLED Music 1.7 — SoundCloud, último player e borda da capa
+Data: 2026-11-03
+Base: commit 207d24f (versão 1.6).
+Package: pt.luis.oledmusic
+VersionName: 1.7
+VersionCode: 8
+APK SHA256: d33e5ef62da0204c4285b7ce623db68cf79ac1c09587040420f4cd1a570c8df6
+
+Alterações
+==========
+- com.soundcloud.android adicionado aos pacotes visíveis e suportados.
+  Versão indicada pelo proprietário: 2025.05.27-release.
+  A app não exige uma versão fixa: usa as APIs de sessão multimédia do Android.
+- Monitor partilhado pelo listener e leitor acompanha todas as sessões suportadas,
+  incluindo as de players em pausa e enquanto OLED Music está em segundo plano.
+- Seleção muda com uma nova transição para reprodução. Pausa, metadados,
+  reordenação das sessões e notificações não substituem o último player.
+  A escolha do último pacote fica guardada entre aberturas/processos.
+- Estados Android com timestamps antigos são ignorados; quando disponíveis,
+  os tempos de reprodução servem para ordenar transições e descoberta inicial.
+- Capa, título, artista e controlos usam a mesma sessão. Os fallbacks de capa
+  das notificações são separados por token para não misturar os dois players.
+- O temporizador pausa a sessão selecionada (SoundCloud ou YouTube Music).
+- Capa preenche o quadrado com CENTER_CROP: escala uniforme e recorte central,
+  preservando as proporções da imagem em vez de a deformar.
+- Definições → Capa: borda opcional, cor, espessura 1–24 dp, raio 0–100 dp,
+  com pré-visualização. Guardar aplica e conserva os valores.
+  Por defeito: borda desativada, espessura 2 dp e raio 12 dp.
+- A borda é desenhada dentro dos limites, sobre a capa, com o mesmo recorte
+  arredondado e raio limitado a metade do lado. O escurecimento afeta a imagem.
+
+Verificações efetuadas
+======================
+1. python tests/run.py --ecj /workspace/.toolchain/ecj.jar
+   PASS: 26 asserções. Cobrem seleção por reprodução, pausa, atualização de
+   um player parado, callbacks atrasados, reinício/religação e sessões recriadas.
+2. python build.py --sdk-root /workspace/.toolchain/sdk --ecj /workspace/.toolchain/ecj.jar
+   Compilação Java e DEX concluída; recursos compilados novamente.
+3. apksigner verify --verbose --print-certs: assinatura válida (v2 e v3).
+   Certificado SHA256, igual às versões 1.5 e 1.6:
+   00a2a2190ede4539eab5465eae72eba414ff33d5d4a52823535ff12f3f3cadcf
+4. zipalign -c 4: aprovado.
+5. aapt2 dump badging: versão 1.7, código 8, minSdk 26, targetSdk 36.
+6. Nova descompilação do APK final com JADX 1.5.6 concluída sem erros.
+   Manifesto confirma os três pacotes e as mesmas três permissões anteriores.
+   Modo CENTER_CROP e quatro controlos de borda presentes no APK.
+7. git diff --check: aprovado.
+
+Limites
+=======
+Não foi executado num dispositivo ou emulador. Não foi instalada/testada a
+versão SoundCloud 2025.05.27-release neste ambiente. O teste no telemóvel deve
+confirmar as notificações/metadados/capa e ações que essa versão disponibiliza,
+a troca entre players e o aspeto da borda em ambas as orientações.
+
+Instalar sobre a 1.6 (ou 1.5), escolhendo Atualizar. A mesma chave e identificador
+permitem conservar dados. Os passos de teste estão no README.
+O ZIP de código não inclui a chave privada nem a toolchain.

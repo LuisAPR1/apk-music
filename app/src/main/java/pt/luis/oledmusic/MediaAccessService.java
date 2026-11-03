@@ -1,6 +1,7 @@
 package pt.luis.oledmusic;
 
 import android.app.Notification;
+import android.content.ComponentName;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Icon;
 import android.media.session.MediaSession;
@@ -8,12 +9,14 @@ import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
-import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
-/** System-bound listener. Only YouTube Music notification data is inspected or retained. */
+/** Only supported players' media notifications are inspected or retained. */
 public final class MediaAccessService extends NotificationListenerService {
-    interface Observer { void onMediaNotificationChanged(); }
-
     static final class Snapshot {
         final MediaSession.Token token;
         final Icon icon;
@@ -30,17 +33,15 @@ public final class MediaAccessService extends NotificationListenerService {
         }
     }
 
-    private static final CopyOnWriteArraySet<Observer> OBSERVERS = new CopyOnWriteArraySet<>();
-    private static volatile Snapshot snapshot;
+    private static volatile List<Snapshot> snapshots = Collections.emptyList();
     private boolean connected;
 
-    static Snapshot snapshot() { return snapshot; }
-    static void addObserver(Observer observer) { OBSERVERS.add(observer); }
-    static void removeObserver(Observer observer) { OBSERVERS.remove(observer); }
-
-    private static void publish(Snapshot value) {
-        snapshot = value;
-        for (Observer observer : OBSERVERS) observer.onMediaNotificationChanged();
+    static List<Snapshot> snapshots() { return snapshots; }
+    static Snapshot snapshot(MediaSession.Token token) {
+        if (token != null) for (Snapshot item : snapshots) {
+            if (token.equals(item.token)) return item;
+        }
+        return null;
     }
 
     @Override public void onListenerConnected() {
@@ -51,54 +52,56 @@ public final class MediaAccessService extends NotificationListenerService {
 
     @Override public void onListenerDisconnected() {
         connected = false;
-        publish(null);
+        snapshots = Collections.emptyList();
+        PlaybackMonitor.get(this).stop();
         super.onListenerDisconnected();
         if (MediaBridge.hasAccess(this)) {
-            try { requestRebind(new android.content.ComponentName(this, MediaAccessService.class)); }
+            try { requestRebind(new ComponentName(this, MediaAccessService.class)); }
             catch (RuntimeException ignored) { }
         }
     }
 
     @Override public void onDestroy() {
         connected = false;
-        publish(null);
+        snapshots = Collections.emptyList();
+        PlaybackMonitor.get(this).stop();
         super.onDestroy();
     }
 
     @Override public void onNotificationPosted(StatusBarNotification notification) {
-        if (MediaBridge.preferredPackage(this).equals(notification.getPackageName())) refresh();
+        if (MediaBridge.isSupportedPackage(notification.getPackageName())) refresh();
     }
 
     @Override public void onNotificationRemoved(StatusBarNotification notification) {
-        if (MediaBridge.preferredPackage(this).equals(notification.getPackageName())) refresh();
+        if (MediaBridge.isSupportedPackage(notification.getPackageName())) refresh();
     }
 
     private void refresh() {
         if (!connected) return;
-        Snapshot best = null;
-        long newest = Long.MIN_VALUE;
-        String musicPackage = MediaBridge.preferredPackage(this);
+        Map<MediaSession.Token, Snapshot> found = new LinkedHashMap<>();
+        Map<MediaSession.Token, Long> times = new LinkedHashMap<>();
         try {
             StatusBarNotification[] active = getActiveNotifications();
             if (active != null) for (StatusBarNotification item : active) {
-                if (!musicPackage.equals(item.getPackageName())) continue;
+                if (!MediaBridge.isSupportedPackage(item.getPackageName())) continue;
                 Notification notification = item.getNotification();
                 Bundle extras = notification.extras;
                 if (extras == null) continue;
                 Object rawToken = extras.getParcelable(Notification.EXTRA_MEDIA_SESSION);
                 if (!(rawToken instanceof MediaSession.Token)) continue;
-                if (item.getPostTime() < newest) continue;
+                MediaSession.Token token = (MediaSession.Token) rawToken;
+                Long newest = times.get(token);
+                if (newest != null && item.getPostTime() < newest) continue;
                 Object rawBitmap = extras.getParcelable(Notification.EXTRA_LARGE_ICON);
                 CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
                 CharSequence artist = extras.getCharSequence(Notification.EXTRA_TEXT);
-                best = new Snapshot((MediaSession.Token) rawToken, notification.getLargeIcon(),
+                found.put(token, new Snapshot(token, notification.getLargeIcon(),
                         rawBitmap instanceof Bitmap ? (Bitmap) rawBitmap : null,
-                        title == null ? "" : title.toString(), artist == null ? "" : artist.toString());
-                newest = item.getPostTime();
+                        title == null ? "" : title.toString(), artist == null ? "" : artist.toString()));
+                times.put(token, item.getPostTime());
             }
-        } catch (RuntimeException ignored) {
-            // Access can be revoked while Android is delivering a callback.
-        }
-        publish(best);
+        } catch (RuntimeException ignored) { }
+        snapshots = Collections.unmodifiableList(new ArrayList<>(found.values()));
+        PlaybackMonitor.get(this).refresh();
     }
 }

@@ -42,6 +42,8 @@ import java.util.function.Supplier;
 public final class SettingsActivity extends Activity implements ColorPickerDialog.Listener {
     private Switch artist;
     private View artistOptions;
+    private View borderOptions;
+    private AlbumArtworkView borderPreview;
     private TextView artistPreview;
     private Switch brightness;
     private View brightnessOptions;
@@ -154,6 +156,27 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
             }
         });
         help(section.body, "Dois toques: reproduzir/pausar. Deslizar para a esquerda: seguinte. Para a direita: anterior. Três dedos continuam a abrir as definições.");
+        help(section.body, "A imagem preenche sempre o quadrado com recorte central, sem deformar as proporções.");
+        borderPreview = new AlbumArtworkView(this);
+        borderPreview.setContentDescription("Pré-visualização da borda e dos cantos da capa");
+        GradientDrawable sample = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF354E68, 0xFF895C86, 0xFFE0A77A});
+        borderPreview.setImageDrawable(sample);
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(dp(160), dp(160));
+        previewParams.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+        previewParams.topMargin = dp(16);
+        section.body.addView(borderPreview, previewParams);
+        toggle(section.body, "Mostrar borda na capa", R.id.album_border_switch,
+                preferences.showAlbumBorder, value -> preferences.showAlbumBorder = value);
+        LinearLayout borderColumn = column();
+        borderOptions = borderColumn;
+        add(section.body, borderColumn, 4);
+        color(borderColumn, "Cor da borda", R.id.album_border_color_choice, false,
+                preferences.albumBorderColor, false);
+        slider(borderColumn, "Espessura da borda", R.id.album_border_width_slider, 1, 24,
+                preferences.albumBorderWidth, " dp", value -> preferences.albumBorderWidth = value);
+        slider(section.body, "Arredondamento dos cantos", R.id.album_corner_radius_slider, 0, 100,
+                preferences.albumCornerRadius, " dp", value -> preferences.albumCornerRadius = value);
         Section section2 = section(linearLayoutColumn2, "Controlos", R.id.controls_section_header, R.id.controls_section_content, new Supplier() {
             @Override
             public final Object get() {
@@ -239,7 +262,7 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
         this.artistPreview.setGravity(17);
         add(linearLayoutColumn3, this.titlePreview, 16);
         add(linearLayoutColumn3, this.artistPreview, 4);
-        help(section3.body, "O artista depende dos metadados publicados pelo YouTube Music.");
+        help(section3.body, "O artista depende dos metadados publicados pelo player em uso.");
         Section section4 = section(linearLayoutColumn2, "Barras", R.id.bars_section_header, R.id.bars_section_content, new Supplier() {
             @Override
             public final Object get() {
@@ -327,7 +350,7 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
                 SettingsActivity.this.requestExactAlarms(view);
             }
         });
-        help(section5.body, "Pausa o YouTube Music no fim, mesmo com o ecrã apagado. Sem autorização para alarmes precisos, o Android pode atrasar o disparo. Iniciar e cancelar têm efeito imediato. Reiniciar o telemóvel cancela o temporizador.");
+        help(section5.body, "Pausa o player em uso no fim, mesmo com o ecrã apagado. Sem autorização para alarmes precisos, o Android pode atrasar o disparo. Iniciar e cancelar têm efeito imediato. Reiniciar o telemóvel cancela o temporizador.");
         Section section6 = section(linearLayoutColumn2, "Bloqueio", R.id.lock_section_header, R.id.lock_section_content, new Supplier() {
             @Override
             public final Object get() {
@@ -748,6 +771,8 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
             this.preferences.titleColor = i2;
         } else if (i == R.id.artist_color_choice) {
             this.preferences.artistColor = i2;
+        } else if (i == R.id.album_border_color_choice) {
+            this.preferences.albumBorderColor = i2;
         }
         refresh();
     }
@@ -756,6 +781,8 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
         if (this.building) {
             return;
         }
+        this.borderOptions.setVisibility(this.preferences.showAlbumBorder ? View.VISIBLE : View.GONE);
+        this.borderPreview.applyAppearance(this.preferences);
         this.controls.setEnabled(this.preferences.coverGestures);
         this.controls.setAlpha(this.preferences.coverGestures ? 1.0f : 0.45f);
         if (!this.preferences.coverGestures && !this.preferences.showControls) {
