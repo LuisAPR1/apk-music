@@ -1,0 +1,65 @@
+OLED Music 1.8 — cor automática da borda
+Base: commit ae7f2c3 (versão 1.7)
+Package: pt.luis.oledmusic
+versionName: 1.8
+versionCode: 9
+APK SHA256: 0ea62dd9b94760afa147248ff4b474ceab0d8234dcf8c6f3208fc742c4260b9c
+
+Utilização
+==========
+Definições → Capa → Mostrar borda na capa → Cor automática pela capa → Guardar.
+O toggle vem desligado por defeito. Ao desligar, regressa à cor manual guardada.
+
+Regra de escolha
+================
+- A percentagem de 40% refere-se à área ocupada pela cor, conforme confirmado
+  pelo proprietário. Exatamente 40% é permitido; mais de 40% é rejeitado.
+- Uma amostra 64x64 reproduz o recorte central do quadrado visível, com fundo
+  preto sob transparência. Os cantos ocultos pelo arredondamento são excluídos.
+- Tons próximos são agrupados (quantização RGB e proximidade em Lab), ordenados
+  pela frequência. A representante é uma cor presente nos píxeis amostrados.
+- Tenta a cor mais frequente até 40%; se não cumprir ou se confundir com as
+  margens, tenta a seguinte. O limite também se aplica às seguintes.
+- As margens acompanham a forma arredondada e a espessura; são verificadas
+  tanto na imagem original como após o escurecimento configurado da capa.
+- Sem cor elegível, usa a cor manual se contrastar; caso contrário escolhe uma
+  cor neutra que maximize o pior contraste de luminância nas margens amostradas.
+  Numa margem multicolor nenhuma cor única garante contraste perfeito em todos
+  os pontos. A frequência e o contraste são aproximações da amostra e dos tons.
+
+Implementação
+=============
+Cálculo fora da thread de interface; cache por bitmap/geração e configurações.
+Repetir play/pausa com a mesma capa não recalcula a paleta.
+Resultados antigos são descartados ao trocar de capa, desligar o modo, mudar
+configurações ou remover a vista. A cor manual nunca é sobrescrita pelo cálculo.
+A pré-visualização usa o mesmo componente e respeita o escurecimento da capa.
+Não há novas permissões, bibliotecas externas nem acesso à rede.
+
+Verificações efetuadas
+======================
+python tests/run.py --ecj /workspace/.toolchain/ecj.jar
+PASS: 26 asserções de seleção de player + 21 asserções da paleta (47 no total).
+Casos de paleta: 40% exato/ultrapassado, segunda/terceira cor, margens iguais
+ou semelhantes, tons próximos de JPEG, transparência/cantos, monocromia,
+contraste de fallback, perímetro renderizado separado e determinismo.
+
+python build.py --sdk-root /workspace/.toolchain/sdk --ecj /workspace/.toolchain/ecj.jar
+Compilação Java, DEX e recursos concluída.
+apksigner verify: assinatura válida v2/v3; mesmo certificado das versões anteriores:
+00a2a2190ede4539eab5465eae72eba414ff33d5d4a52823535ff12f3f3cadcf
+zipalign -c 4: aprovado.
+aapt2 dump badging: versão 1.8/código9, minSdk26, targetSdk36.
+Nova descompilação do APK final com JADX1.5.6: concluída sem erros.
+Confirmados no APK: toggle, preferência guardada, classes de análise e mesmas
+três permissões da versão anterior. git diff --check: aprovado.
+Revisão independente do cálculo das margens e do ciclo de vida concluída.
+
+Teste no aparelho
+=================
+Não executado num dispositivo ou emulador neste ambiente.
+Instalar por cima da 1.7 (ou anterior), escolhendo Atualizar.
+Testar capas coloridas/monocromáticas, margens com a cor dominante, troca de
+música e player, cor manual ao desligar o toggle, raio/espessura, escurecimento,
+rotação e reabertura da app. A avaliação visual final depende deste teste.
+O ZIP de código não inclui a chave privada nem a toolchain.

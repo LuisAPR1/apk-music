@@ -27,6 +27,7 @@ final class AppPreferences implements Serializable {
     int artistSize = 16;
     int textPosition = 1;
     boolean showAlbumBorder;
+    boolean autoAlbumBorderColor;
     int albumBorderColor = -1;
     int albumBorderWidth = 2;
     int albumCornerRadius = 12;
@@ -59,6 +60,7 @@ final class AppPreferences implements Serializable {
         appPreferences.fontFamily = clamp(sharedPreferences.getInt("font_family", 0), 0, 3);
         appPreferences.fontStyle = clamp(sharedPreferences.getInt("font_style", 0), 0, 3);
         appPreferences.showAlbumBorder = sharedPreferences.getBoolean("show_album_border", false);
+        appPreferences.autoAlbumBorderColor = sharedPreferences.getBoolean("auto_album_border_color", false);
         appPreferences.albumBorderColor = sharedPreferences.getInt("album_border_color", -1) | 0xFF000000;
         appPreferences.albumBorderWidth = clamp(sharedPreferences.getInt("album_border_width", 2), 1, 24);
         appPreferences.albumCornerRadius = clamp(sharedPreferences.getInt("album_corner_radius", 12), 0, 100);
@@ -71,6 +73,7 @@ final class AppPreferences implements Serializable {
         }
         context.getSharedPreferences("appearance", 0).edit()
                 .putBoolean("show_album_border", this.showAlbumBorder)
+                .putBoolean("auto_album_border_color", this.autoAlbumBorderColor)
                 .putInt("album_border_color", this.albumBorderColor)
                 .putInt("album_border_width", this.albumBorderWidth)
                 .putInt("album_corner_radius", this.albumCornerRadius)

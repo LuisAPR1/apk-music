@@ -1,6 +1,6 @@
 # OLED Music
 
-Versão 1.7: SoundCloud, seleção automática do último player reproduzido, capa com recorte central e borda configurável. Baseada na 1.6 recuperada do APK 1.5; a origem dessa recuperação está em `releases/VERIFICACAO-v1.6.txt`.
+Versão 1.8: cor automática da borda a partir da capa, mantendo o suporte a SoundCloud, seleção do último player reproduzido e capa com recorte central. Baseada na 1.6 recuperada do APK 1.5; a origem dessa recuperação está em `releases/VERIFICACAO-v1.6.txt`.
 
 Players reconhecidos:
 
@@ -18,9 +18,13 @@ Toca com três dedos para abrir as definições (também disponíveis através d
 
 Em **Definições → Capa**, a imagem preenche sempre o quadrado usando recorte central, com proporções preservadas. Podes ativar a borda, escolher a cor, ajustar a espessura entre 1 e 24 dp e o raio dos cantos entre 0 e 100 dp. A pré-visualização acompanha as alterações; toca em **Guardar** para aplicar. A borda vem desativada por defeito e os cantos mantêm os 12 dp da versão anterior. O raio é limitado a metade do lado da capa para se adaptar a capas pequenas.
 
+Para usar a cor automática: em **Definições → Capa**, ativa **Mostrar borda na capa** e **Cor automática pela capa**, e toca em **Guardar**. A app agrupa tons semelhantes da capa visível e tenta a cor mais frequente que ocupe **até 40%** da imagem. Se ultrapassar 40% ou se confundir com as margens da capa, tenta a próxima por frequência. Exatamente 40% é permitido. A amostragem considera o quadrado após o recorte e os cantos arredondados; as margens originais e escurecidas são verificadas para evitar que a borda desapareça. Em capas monocromáticas ou sem cor elegível, usa a cor manual se contrastar, ou uma cor neutra com o melhor contraste possível. Em margens com muitas cores, nenhuma cor única pode garantir contraste perfeito em toda a volta.
+
+O modo automático vem desligado por defeito. A cor manual mantém-se guardada e volta a ser usada ao desligar o toggle. A análise é feita em segundo plano numa amostra pequena; repetir play/pausa não volta a calcular a mesma capa. A percentagem é estimada por amostragem e agrupamento de tons, não por contagem exata dos píxeis da imagem original.
+
 ## Instalar no Pixel
 
-1. Copia `OLED-Music-v1.7.apk` para o telemóvel e abre-o na app Ficheiros. Escolhe **Atualizar** sobre a 1.6 (ou 1.5). Se o Android pedir, permite instalar apps dessa origem.
+1. Copia `OLED-Music-v1.8.apk` para o telemóvel e abre-o na app Ficheiros. Escolhe **Atualizar** sobre a 1.7 (ou anterior). Se o Android pedir, permite instalar apps dessa origem.
 2. Abre **OLED Music** e toca em **Permitir acesso**. Ativa o acesso às notificações para OLED Music e regressa à app.
 3. Se o Android bloquear esta opção com **Definição restrita**, abre **Definições → Apps → OLED Music → ⋮ → Permitir definições restritas**. Depois volta a conceder o acesso às notificações. Os nomes podem variar consoante o idioma/versão do Android.
 4. Abre o SoundCloud ou YouTube Music, começa uma música e volta a OLED Music.
@@ -42,7 +46,7 @@ O Android concede acesso amplo às notificações. Este código filtra pelos tr�
 
 ## Compilar novamente
 
-O APK 1.7 foi gerado em Linux com `build.py`, Android SDK Platform 36, Build Tools 36.0.0, Java 21 e compilador ECJ 3.38.0:
+O APK 1.8 foi gerado em Linux com `build.py`, Android SDK Platform 36, Build Tools 36.0.0, Java 21 e compilador ECJ 3.38.0:
 
 ```sh
 python3 build.py --sdk-root /caminho/Android/Sdk --ecj /caminho/ecj-3.38.0.jar
@@ -54,7 +58,7 @@ Com um JDK que inclua `javac`, não é necessário ECJ:
 python3 build.py --sdk-root /caminho/Android/Sdk
 ```
 
-O resultado fica em `build/OLED-Music-v1.7.apk`. A versão é lida de `app/build.gradle`. Não são reutilizados o DEX nem os recursos compilados do APK original: o código e os recursos do projeto são compilados novamente.
+O resultado fica em `build/OLED-Music-v1.8.apk`. A versão é lida de `app/build.gradle`. Não são reutilizados o DEX nem os recursos compilados do APK original: o código e os recursos do projeto são compilados novamente.
 
 Em Windows existe também `build.ps1` (atualizado, mas não executado neste ambiente):
 
@@ -62,7 +66,7 @@ Em Windows existe também `build.ps1` (atualizado, mas não executado neste ambi
 .\build.ps1 -SdkRoot 'C:\caminho\Android\Sdk' -JavaHome 'C:\caminho\jdk'
 ```
 
-Requer JDK 17 ou posterior, Android SDK Platform 36 e Build Tools 36.0.0. O resultado fica em `build\OLED-Music-v1.7.apk`. Os scripts verificam a assinatura e o alinhamento do APK. Cada compilação cria uma pasta de trabalho nova.
+Requer JDK 17 ou posterior, Android SDK Platform 36 e Build Tools 36.0.0. O resultado fica em `build\OLED-Music-v1.8.apk`. Os scripts verificam a assinatura e o alinhamento do APK. Cada compilação cria uma pasta de trabalho nova.
 
 A chave original `oledmusic-local.jks` já está no repositório por indicação do proprietário (senha de desenvolvimento `android`). A assinatura foi comparada com a do APK 1.5 e coincide. Os scripts exigem esta chave e não criam outra automaticamente. Guarda-a para assinar futuras atualizações compatíveis com a instalação atual. Não está incluída no ZIP de código. Esta é uma distribuição pessoal, não uma publicação na Play Store.
 
@@ -70,7 +74,7 @@ Há também configuração de projeto Android Gradle para abrir o código no And
 
 ## Verificação no telemóvel
 
-A compilação, assinatura e alinhamento do APK foram verificados. Os testes de seleção de player correm na JVM:
+A compilação, assinatura e alinhamento do APK foram verificados. Os testes de seleção de player e de cor da borda correm na JVM:
 
 ```sh
 python3 tests/run.py --ecj /caminho/ecj-3.38.0.jar
@@ -80,7 +84,7 @@ python3 tests/run.py
 
 Não foi executado num dispositivo ou emulador neste ambiente. Testar no telemóvel:
 
-1. Atualizar sobre a 1.6 e confirmar que as definições existentes se mantêm.
+1. Atualizar sobre a 1.7 e confirmar que as definições existentes se mantêm.
 2. Reproduzir no ReVanced; abrir o SoundCloud sem dar play: deve continuar no ReVanced.
 3. Dar play no SoundCloud: deve mudar capa, metadados e destino dos botões para SoundCloud.
 4. Pausar no SoundCloud e voltar a OLED Music: deve continuar no SoundCloud.
@@ -88,7 +92,8 @@ Não foi executado num dispositivo ou emulador neste ambiente. Testar no telemó
 6. Com ambos em pausa, fechar e voltar a abrir OLED Music: deve manter o último player.
 7. Verificar capa retangular sem deformação e sem margens vazias, em ambas as orientações e tamanhos da capa.
 8. Ativar a borda, mudar cor, espessura e cantos; guardar, rodar e reabrir para confirmar os valores.
-9. Confirmar gestos na capa, título/artista, brilho, volume, temporizador no player selecionado e desbloqueio para abrir definições.
+9. Ativar a cor automática, guardar e trocar de música: a borda deve acompanhar a nova capa. Confirmar capas monocromáticas e imagens com margens da mesma cor dominante. Desligar o toggle deve restaurar a cor manual.
+10. Confirmar gestos na capa, título/artista, brilho, volume, temporizador no player selecionado e desbloqueio para abrir definições.
 
 As ações, metadados e qualidade da capa dependem do que cada player publica na sessão Android. A versão SoundCloud indicada pelo proprietário não foi instalada nem executada neste ambiente.
 

@@ -7,6 +7,8 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Insets;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -161,7 +163,11 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
         borderPreview.setContentDescription("Pré-visualização da borda e dos cantos da capa");
         GradientDrawable sample = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
                 new int[]{0xFF354E68, 0xFF895C86, 0xFFE0A77A});
-        borderPreview.setImageDrawable(sample);
+        Bitmap sampleBitmap = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888);
+        Canvas sampleCanvas = new Canvas(sampleBitmap);
+        sample.setBounds(0, 0, 128, 128);
+        sample.draw(sampleCanvas);
+        borderPreview.setArtwork(sampleBitmap);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(dp(160), dp(160));
         previewParams.gravity = android.view.Gravity.CENTER_HORIZONTAL;
         previewParams.topMargin = dp(16);
@@ -171,6 +177,9 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
         LinearLayout borderColumn = column();
         borderOptions = borderColumn;
         add(section.body, borderColumn, 4);
+        toggle(borderColumn, "Cor automática pela capa", R.id.album_border_auto_color_switch,
+                preferences.autoAlbumBorderColor, value -> preferences.autoAlbumBorderColor = value);
+        help(borderColumn, "Escolhe a cor mais frequente que ocupe até 40% da capa e se distinga das suas margens. Se não houver uma cor adequada, usa uma cor de contraste.");
         color(borderColumn, "Cor da borda", R.id.album_border_color_choice, false,
                 preferences.albumBorderColor, false);
         slider(borderColumn, "Espessura da borda", R.id.album_border_width_slider, 1, 24,
@@ -783,6 +792,9 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
         }
         this.borderOptions.setVisibility(this.preferences.showAlbumBorder ? View.VISIBLE : View.GONE);
         this.borderPreview.applyAppearance(this.preferences);
+        this.borderPreview.setImageAlpha(Math.round((1 - this.preferences.coverDim / 100f) * 255));
+        findViewById(R.id.album_border_color_choice).setVisibility(
+                this.preferences.autoAlbumBorderColor ? View.GONE : View.VISIBLE);
         this.controls.setEnabled(this.preferences.coverGestures);
         this.controls.setAlpha(this.preferences.coverGestures ? 1.0f : 0.45f);
         if (!this.preferences.coverGestures && !this.preferences.showControls) {

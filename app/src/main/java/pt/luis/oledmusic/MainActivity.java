@@ -293,11 +293,9 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         this.setupScroll.setVisibility(8);
         this.player.setVisibility(0);
         if (state.artwork != null) {
-            this.player.artwork.setImageBitmap(state.artwork);
-            this.player.artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            this.player.artwork.setArtwork(state.artwork);
         } else {
-            this.player.artwork.setImageDrawable(new SymbolDrawable(4, -11184811));
-            this.player.artwork.setScaleType(ImageView.ScaleType.CENTER);
+            this.player.artwork.setPlaceholder(new SymbolDrawable(4, -11184811));
         }
         this.player.artwork.setContentDescription((state.title == null || state.title.isEmpty()) ? "Capa do álbum" : "Capa: " + state.title);
         if (this.displayedPlaying != state.playing || this.player.play.getDrawable() == null) {
