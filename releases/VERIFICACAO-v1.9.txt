@@ -1,0 +1,103 @@
+OLED Music 1.9 — vídeo, letras sincronizadas e tipografia
+Base: commit451ec63 (versão1.8)
+Package: pt.luis.oledmusic
+versionName:1.9 / versionCode:10
+APK SHA256: fe5feedddc8e966654eaff32701a3b4bcdc237335a63449ab5de100eb7da4644
+
+Utilização
+==========
+Definições → Vídeo → Mostrar seletor Capa/Vídeo → Guardar.
+Definições → Letras → Mostrar letras abaixo da capa → origem e estilo → Guardar.
+Opções novas desligadas por defeito; preferências anteriores preservadas.
+As opções de tipo de letra de título/artista continuam em Faixa.
+
+Vídeo
+=====
+O seletor tem desenho de cápsula no tema preto/branco atual. Usa o IFrame
+oficial YouTube em WebView com controlo próprio, depois de uma escolha explícita.
+Não envia um comando nativo Música/Vídeo ao YouTube Music: não existe comando
+normalizado na sessão multimédia para essa comutação.
+Tenta o ID/URI publicado pelo YouTube Music/ReVanced; o ID pode apontar à versão
+áudio publicada no YouTube. Um link escolhido pelo utilizador pode ser associado
+à faixa nas definições. No SoundCloud essa associação é necessária.
+Não pesquisa nem substitui o vídeo automaticamente por outro de título parecido.
+
+O player original é pausado antes de carregar o vídeo; ao voltar à capa,
+transfere posição apenas se o vídeo chegou a reproduzir e o player suporta seek,
+e pode retomar conforme a preferência e o estado anterior. Versões diferentes
+podem não coincidir na duração/introdução. Trocar de música/player não aplica
+uma posição antiga à faixa nova. Reprodução nativa retomada fora da app fecha
+vídeo. Anterior/seguinte regressam à sessão nativa e mudam de faixa.
+O WebView é descarregado ao ocultar/pausar a atividade, sem áudio oculto.
+Rotação preserva modo, posição e pausa/reprodução em memória.
+IDs/URLs são validados; não aceita HTML nem hosts arbitrários para incorporação.
+O Referer/origem identifica a app; erros153/101/150/rede são apresentados.
+Viewport mínimo200x200dp: aumentar capa/janela se não couber.
+Dependência: Android System WebView e vídeo que permita incorporação.
+Reprodução/ads/restrições são geridas pelo YouTube. Não foi testado em aparelho.
+
+Letras
+======
+LRCLIB opcional: GET exato com título/artista/álbum/duração, User-Agent da app,
+HTTPS, timeouts, limite de resposta, cache privado limitado e Retry-After.
+Esses metadados saem do aparelho apenas quando a origem online está ativa.
+Sem login/chaves. Faixas podem ter LRC, texto simples, ser instrumentais ou não
+ter letra disponível. Texto simples nunca recebe sincronização inventada.
+LRC local é importado pelo seletor de documentos para ficheiro privado por faixa.
+
+Posição calculada pelo PlaybackState e relógio monotónico quando válidos;
+pausa/velocidade/seek respeitados. Relógio em falta conserva a posição conhecida.
+Vídeo acompanha o relógio do IFrame. Letras têm destaque, scroll suave, leitura
+livre/Seguir e procura por toque quando o player permite. Cancelamento e chaves
+impedem aplicar respostas da faixa anterior. Metadados vazios limpam a letra.
+Timestamps múltiplos/offsets/traduções são suportados; linhas simultâneas são
+destacadas em conjunto. Opções: família/estilo, tamanho, cor, alinhamento,
+espaçamento, altura, ajuste±5000ms e toque para seek. Cache/render fora da rede
+não produzem pedidos em cada atualização da posição.
+
+Layout e fontes
+===============
+Plano responsivo independente do Android com retângulos de capa, barras,
+seletor, metadados, letras e controlos. Letras abaixo da capa em retrato,
+ao lado em paisagem. Ocultar controlos liberta espaço; paddings dos ícones
+acompanham os botões compactos. Fundo do leitor continua preto opaco.
+19 escolhas tipográficas; índices0–3 antigos preservados. Cinco TTF locais:
+Quicksand, Oswald, PlayfairDisplay, DancingScript e BebasNeue, com licenças OFL.
+Scripts aapt2 agora incluem assets; via Python compilada e assinada.
+PowerShell atualizado mas não executado neste ambiente Linux.
+
+Verificações
+============
+python tests/run.py --ecj /workspace/.toolchain/ecj.jar
+PASS: seleção26; paleta21; LRC81; relógio45; URLsYouTube39;
+layout responsivo201823 verificações de limites/sobreposição e casos de telefone.
+Total202035 asserções na JVM; não equivalem a testes visuais num aparelho.
+
+python build.py --sdk-root /workspace/.toolchain/sdk --ecj /workspace/.toolchain/ecj.jar
+Compilação Java/DEX/recursos/assets concluída. apksigner v2/v3 e zipalign válidos.
+Certificado SHA256 igual às versões anteriores:
+00a2a2190ede4539eab5465eae72eba414ff33d5d4a52823535ff12f3f3cadcf
+Manifesto: minSdk26,targetSdk36. Única permissão nova: INTERNET.
+Cinco fontes TTF e cinco licenças OFL confirmadas dentro do APK final.
+JADX1.5.6 descompilou o APK final sem erros; classes/toggles confirmados.
+git diff --check aprovado. Revisões independentes de UI, relógio e ciclo de vida.
+Teste de serviço LRCLIB: HTTP200, syncedLyrics e plainLyrics disponíveis para
+uma faixa de referência; não é teste da app no telefone.
+
+Limites e teste manual
+=====================
+Não executado em dispositivo/emulador. Instalar sobre a1.8 escolhendo Atualizar.
+Verificar vídeos permitidos/bloqueados, ausência de áudio duplicado/oculto,
+regresso à capa, rotação, troca de música/player; letras online/locais,
+pausa/seek/Seguir/ajuste; controlos mostrados/ocultos, fontes e acessibilidade.
+O modo de vídeo incorporado é independente da subscrição da app original.
+Nenhuma funcionalidade de vídeo do YouTube Music Premium foi presumida.
+O ZIP de código não contém a chave privada nem a toolchain.
+
+Referências
+===========
+https://support.google.com/youtubemusic/answer/6313574?hl=en
+https://developers.google.com/youtube/iframe_api_reference
+https://developers.google.com/youtube/terms/required-minimum-functionality
+https://lrclib.net/docs.txt
+https://developer.android.com/reference/android/media/session/PlaybackState

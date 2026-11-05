@@ -1,5 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <item type="id" name="video_section_header" />
+    <item type="id" name="video_section_content" />
+    <item type="id" name="show_video_switch" />
+    <item type="id" name="resume_after_video_switch" />
+    <item type="id" name="track_video_link" />
+    <item type="id" name="lyrics_section_header" />
+    <item type="id" name="lyrics_section_content" />
+    <item type="id" name="show_lyrics_switch" />
+    <item type="id" name="lyrics_source_spinner" />
+    <item type="id" name="lyrics_import_button" />
+    <item type="id" name="lyrics_font_spinner" />
+    <item type="id" name="lyrics_style_spinner" />
+    <item type="id" name="lyrics_size_slider" />
+    <item type="id" name="lyrics_color_choice" />
+    <item type="id" name="lyrics_spacing_slider" />
+    <item type="id" name="lyrics_alignment_spinner" />
+    <item type="id" name="lyrics_height_slider" />
+    <item type="id" name="lyrics_offset_slider" />
+    <item type="id" name="lyrics_seek_switch" />
+    <item type="id" name="media_mode_switch" />
+    <item type="id" name="player_video" />
+    <item type="id" name="player_lyrics" />
+
     <item type="id" name="album_border_auto_color_switch" />
     <item type="id" name="album_border_switch" />
     <item type="id" name="album_border_color_choice" />

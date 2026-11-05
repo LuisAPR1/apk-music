@@ -28,6 +28,19 @@ final class AppPreferences implements Serializable {
     int textPosition = 1;
     boolean showAlbumBorder;
     boolean autoAlbumBorderColor;
+    boolean showVideoSwitcher;
+    boolean resumeAfterVideo = true;
+    boolean showLyrics;
+    int lyricsSource;
+    int lyricsFontFamily;
+    int lyricsFontStyle = 1;
+    int lyricsSize = 23;
+    int lyricsColor = -1;
+    int lyricsSpacing = 14;
+    int lyricsAlignment = 1;
+    int lyricsHeight = 30;
+    int lyricsOffsetMs;
+    boolean lyricsTapToSeek = true;
     int albumBorderColor = -1;
     int albumBorderWidth = 2;
     int albumCornerRadius = 12;
@@ -57,13 +70,26 @@ final class AppPreferences implements Serializable {
         appPreferences.titleSize = clamp(sharedPreferences.getInt("title_size", 20), 12, 36);
         appPreferences.artistSize = clamp(sharedPreferences.getInt("artist_size", 16), 12, 32);
         appPreferences.textPosition = clamp(sharedPreferences.getInt("text_position", 1), 0, 2);
-        appPreferences.fontFamily = clamp(sharedPreferences.getInt("font_family", 0), 0, 3);
+        appPreferences.fontFamily = clamp(sharedPreferences.getInt("font_family", 0), 0, FontCatalog.count() - 1);
         appPreferences.fontStyle = clamp(sharedPreferences.getInt("font_style", 0), 0, 3);
         appPreferences.showAlbumBorder = sharedPreferences.getBoolean("show_album_border", false);
         appPreferences.autoAlbumBorderColor = sharedPreferences.getBoolean("auto_album_border_color", false);
         appPreferences.albumBorderColor = sharedPreferences.getInt("album_border_color", -1) | 0xFF000000;
         appPreferences.albumBorderWidth = clamp(sharedPreferences.getInt("album_border_width", 2), 1, 24);
         appPreferences.albumCornerRadius = clamp(sharedPreferences.getInt("album_corner_radius", 12), 0, 100);
+        appPreferences.showVideoSwitcher = sharedPreferences.getBoolean("show_video_switcher", false);
+        appPreferences.resumeAfterVideo = sharedPreferences.getBoolean("resume_after_video", true);
+        appPreferences.showLyrics = sharedPreferences.getBoolean("show_lyrics", false);
+        appPreferences.lyricsSource = clamp(sharedPreferences.getInt("lyrics_source", 0), 0, 1);
+        appPreferences.lyricsFontFamily = clamp(sharedPreferences.getInt("lyrics_font_family", 0), 0, FontCatalog.count() - 1);
+        appPreferences.lyricsFontStyle = clamp(sharedPreferences.getInt("lyrics_font_style", 1), 0, 3);
+        appPreferences.lyricsSize = clamp(sharedPreferences.getInt("lyrics_size", 23), 14, 36);
+        appPreferences.lyricsColor = sharedPreferences.getInt("lyrics_color", -1) | 0xFF000000;
+        appPreferences.lyricsSpacing = clamp(sharedPreferences.getInt("lyrics_spacing", 14), 2, 30);
+        appPreferences.lyricsAlignment = clamp(sharedPreferences.getInt("lyrics_alignment", 1), 0, 2);
+        appPreferences.lyricsHeight = clamp(sharedPreferences.getInt("lyrics_height", 30), 15, 50);
+        appPreferences.lyricsOffsetMs = clamp(sharedPreferences.getInt("lyrics_offset_ms", 0), -5000, 5000);
+        appPreferences.lyricsTapToSeek = sharedPreferences.getBoolean("lyrics_tap_to_seek", true);
         return appPreferences;
     }
 
@@ -74,6 +100,13 @@ final class AppPreferences implements Serializable {
         context.getSharedPreferences("appearance", 0).edit()
                 .putBoolean("show_album_border", this.showAlbumBorder)
                 .putBoolean("auto_album_border_color", this.autoAlbumBorderColor)
+                .putBoolean("show_video_switcher", showVideoSwitcher).putBoolean("resume_after_video", resumeAfterVideo)
+                .putBoolean("show_lyrics", showLyrics).putInt("lyrics_source", lyricsSource)
+                .putInt("lyrics_font_family", lyricsFontFamily).putInt("lyrics_font_style", lyricsFontStyle)
+                .putInt("lyrics_size", lyricsSize).putInt("lyrics_color", lyricsColor)
+                .putInt("lyrics_spacing", lyricsSpacing).putInt("lyrics_alignment", lyricsAlignment)
+                .putInt("lyrics_height", lyricsHeight).putInt("lyrics_offset_ms", lyricsOffsetMs)
+                .putBoolean("lyrics_tap_to_seek", lyricsTapToSeek)
                 .putInt("album_border_color", this.albumBorderColor)
                 .putInt("album_border_width", this.albumBorderWidth)
                 .putInt("album_corner_radius", this.albumCornerRadius)

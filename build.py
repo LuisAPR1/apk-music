@@ -46,7 +46,7 @@ def build():
     run(bt / 'aapt2', 'link', '-I', android, '--manifest', manifest_path,
         '--min-sdk-version', '26', '--target-sdk-version', '36',
         '--version-code', version_code, '--version-name', version_name,
-        '--java', generated, '-o', work / 'unsigned.apk', work / 'resources.zip')
+        '-A', root / 'app/src/main/assets', '--java', generated, '-o', work / 'unsigned.apk', work / 'resources.zip')
     sources = sorted((root / 'app/src/main/java').rglob('*.java')) + sorted(generated.rglob('*.java'))
     if args.ecj:
         run('java', '-jar', args.ecj, '-8', '-proc:none', '-nowarn', '-encoding', 'UTF-8',

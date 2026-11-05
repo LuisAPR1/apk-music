@@ -64,6 +64,16 @@ public final class MediaBridge {
         public boolean canPrevious;
         public boolean canNext;
         public boolean canToggle;
+        public boolean canSeek;
+        public long positionMs;
+        public long positionUpdatedAtMs;
+        public float playbackSpeed;
+        public long durationMs;
+        public String packageName = "";
+        public String mediaId = "";
+        public String mediaUri = "";
+        public String album = "";
+        public String trackKey = "";
         public Bitmap artwork;
         public String title = "";
         public String artist = "";
@@ -241,6 +251,13 @@ public final class MediaBridge {
             PlaybackState playback = controller.getPlaybackState();
             long actions = playback == null ? 0 : playback.getActions();
             state.playing = isPlaying(playback);
+            state.canSeek = (actions & PlaybackState.ACTION_SEEK_TO) != 0;
+            state.packageName = controller.getPackageName();
+            if (playback != null) {
+                state.positionMs = playback.getPosition();
+                state.positionUpdatedAtMs = playback.getLastPositionUpdateTime();
+                state.playbackSpeed = playback.getState() == PlaybackState.STATE_BUFFERING || playback.getState() == PlaybackState.STATE_CONNECTING ? 0 : playback.getPlaybackSpeed();
+            }
             state.canPrevious = (actions & PlaybackState.ACTION_SKIP_TO_PREVIOUS) != 0;
             state.canNext = (actions & PlaybackState.ACTION_SKIP_TO_NEXT) != 0;
             state.canToggle = (actions & (PlaybackState.ACTION_PLAY_PAUSE
@@ -248,6 +265,10 @@ public final class MediaBridge {
             state.title = title(controller.getMetadata());
             MediaMetadata metadata = controller.getMetadata();
             if (metadata != null) {
+                state.durationMs = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION);
+                state.mediaId = value(metadata.getString(MediaMetadata.METADATA_KEY_MEDIA_ID));
+                state.mediaUri = value(metadata.getString(MediaMetadata.METADATA_KEY_MEDIA_URI));
+                state.album = value(metadata.getString(MediaMetadata.METADATA_KEY_ALBUM));
                 state.artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST);
                 if (TextUtils.isEmpty(state.artist)) {
                     state.artist = metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
@@ -258,9 +279,31 @@ public final class MediaBridge {
                     && controller.getSessionToken().equals(snapshot.token)) state.title = snapshot.title;
             if (TextUtils.isEmpty(state.artist) && snapshot != null
                     && controller.getSessionToken().equals(snapshot.token)) state.artist = snapshot.artist;
+            state.trackKey = TrackAttachments.identity(state.packageName, state.mediaId, state.title,
+                    value(state.artist), state.album, state.durationMs);
             state.artwork = artwork;
         }
         listener.onState(state);
+    }
+
+    private static String value(String text) { return text == null ? "" : text; }
+
+    public void seekTo(long positionMs) {
+        if (controller == null || !hasAccess(context)) return;
+        try { controller.getTransportControls().seekTo(Math.max(0, positionMs)); }
+        catch (RuntimeException ignored) { monitor.refresh(); }
+    }
+
+    public void pause() {
+        if (controller == null || !hasAccess(context)) return;
+        try { controller.getTransportControls().pause(); }
+        catch (RuntimeException ignored) { monitor.refresh(); }
+    }
+
+    public void play() {
+        if (controller == null || !hasAccess(context)) return;
+        try { controller.getTransportControls().play(); }
+        catch (RuntimeException ignored) { monitor.refresh(); }
     }
 
     public void playPause() {

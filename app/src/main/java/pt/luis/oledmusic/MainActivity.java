@@ -20,6 +20,9 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.view.MotionEvent;
 import android.view.View;
@@ -40,6 +43,31 @@ import android.widget.Toast;
 
 public final class MainActivity extends Activity implements MediaBridge.Listener {
     private boolean accessGranted;
+    private LyricsRepository lyricsRepository;
+    private boolean extrasActive;
+    private String lyricRequestKey = "";
+    private boolean videoMode;
+    private VideoResume rotationVideo;
+    private VideoResume pausedVideo;
+    private static final class VideoResume {
+        final String id, trackKey;
+        final long position;
+        final boolean playing;
+        VideoResume(String id, String trackKey, long position, boolean playing) {
+            this.id = id; this.trackKey = trackKey; this.position = position; this.playing = playing;
+        }
+    }
+    private boolean videoWasNativePlaying;
+    private String videoTrackKey = "";
+    private String currentVideoId = "";
+    private final Handler lyricHandler = new Handler(Looper.getMainLooper());
+    private final Runnable lyricTick = new Runnable() {
+        @Override public void run() {
+            if (!extrasActive || !appearance.showLyrics) return;
+            updateLyricPosition();
+            lyricHandler.postDelayed(this, 200);
+        }
+    };
     private AppPreferences appearance;
     private MediaBridge bridge;
     private BrightnessControl brightnessControl;
@@ -62,6 +90,9 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
     public void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         this.appearance = AppPreferences.load(this);
+        this.lyricsRepository = new LyricsRepository(this);
+        Object retained = getLastNonConfigurationInstance();
+        if (retained instanceof VideoResume) rotationVideo = (VideoResume) retained;
         this.lockScreen = new LockScreenController(this);
         getWindow().setStatusBarColor(-16777216);
         getWindow().setNavigationBarColor(-16777216);
@@ -165,21 +196,41 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         AppPreferences appPreferencesLoad = AppPreferences.load(this);
         this.appearance = appPreferencesLoad;
         this.lockScreen.setEnabled(appPreferencesLoad.showOnLockScreen);
+        this.extrasActive = true;
+        this.lyricRequestKey = "";
         this.player.applyAppearance();
+        updateLyrics(mediaState);
+        lyricHandler.removeCallbacks(lyricTick);
+        lyricTick.run();
         this.brightnessControl.resume();
         this.volumeControl.resume();
         this.bridge.start();
+        if (rotationVideo != null) {
+            VideoResume restore = rotationVideo;
+            rotationVideo = null;
+            if (appearance.showVideoSwitcher && mediaState.connected && restore.trackKey.equals(mediaState.trackKey)) restoreVideo(restore);
+        }
         hideSystemBars();
     }
 
     @Override
     protected void onPause() {
+        this.extrasActive = false;
+        lyricHandler.removeCallbacks(lyricTick);
+        lyricsRepository.cancel();
+        lyricRequestKey = "";
+        pausedVideo = videoMode && !currentVideoId.isEmpty()
+                ? new VideoResume(currentVideoId, videoTrackKey, player.video.getPositionMs(),
+                        player.video.isPlaying() || (!player.video.hasStarted() && videoWasNativePlaying)) : null;
+        leaveVideo(false);
         this.settingsGesture.reset();
         this.brightnessControl.pause();
         this.volumeControl.pause();
         this.player.coverGestures.cancel();
         super.onPause();
     }
+
+    @Override public Object onRetainNonConfigurationInstance() { return pausedVideo; }
 
     public void openSettings() {
         DeviceUnlock.run(this, new Runnable() {
@@ -191,7 +242,9 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
     }
 
     void launchSettings() {
-        startActivity(new Intent(this, (Class<?>) SettingsActivity.class));
+        startActivity(new Intent(this, (Class<?>) SettingsActivity.class)
+                .putExtra("track_key", mediaState.connected ? mediaState.trackKey : "")
+                .putExtra("track_title", mediaState.title));
     }
 
     @Override
@@ -252,6 +305,9 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
     @Override
     protected void onDestroy() {
         this.bridge.stop();
+        lyricsRepository.close();
+        lyricHandler.removeCallbacks(lyricTick);
+        player.video.destroy();
         this.lockScreen.destroy();
         super.onDestroy();
     }
@@ -279,7 +335,11 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
 
     @Override
     public void onState(MediaBridge.State state) {
+        boolean nativeStarted = state.playing && state.playbackSpeed > 0
+                && (!mediaState.playing || mediaState.playbackSpeed <= 0);
+        if (videoMode && (!state.connected || !videoTrackKey.equals(state.trackKey) || nativeStarted)) leaveVideo(false, false);
         this.mediaState = state;
+        updateLyrics(state);
         this.player.updateMetadata(state.title, state.artist);
         this.lockScreen.onMediaState(state.hasAccess && state.connected);
         if (!this.started && !this.lockScreen.keepMonitoringWhileScreenOff()) {
@@ -298,14 +358,127 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
             this.player.artwork.setPlaceholder(new SymbolDrawable(4, -11184811));
         }
         this.player.artwork.setContentDescription((state.title == null || state.title.isEmpty()) ? "Capa do álbum" : "Capa: " + state.title);
-        if (this.displayedPlaying != state.playing || this.player.play.getDrawable() == null) {
-            this.displayedPlaying = state.playing;
-            this.player.play.setImageDrawable(new SymbolDrawable(state.playing ? 1 : 0, controlIconColor()));
-        }
-        this.player.play.setContentDescription(state.playing ? "Pausar" : "Reproduzir");
-        setAvailable(this.player.play, state.canToggle);
+        updatePlayButton();
         setAvailable(this.player.previous, state.canPrevious);
         setAvailable(this.player.next, state.canNext);
+    }
+
+    private long nativePosition() {
+        return PlaybackClock.position(mediaState.positionMs, mediaState.positionUpdatedAtMs,
+                mediaState.playbackSpeed, mediaState.playing, mediaState.durationMs, SystemClock.elapsedRealtime());
+    }
+
+    private void updatePlayButton() {
+        boolean embedded = videoMode && !currentVideoId.isEmpty();
+        boolean playing = embedded ? player.video.isPlaying() : mediaState.playing;
+        if (displayedPlaying != playing || player.play.getDrawable() == null) {
+            displayedPlaying = playing;
+            player.play.setImageDrawable(new SymbolDrawable(playing ? SymbolDrawable.PAUSE : SymbolDrawable.PLAY, controlIconColor()));
+        }
+        player.play.setContentDescription(playing ? "Pausar" : "Reproduzir");
+        setAvailable(player.play, embedded || mediaState.canToggle);
+    }
+
+    private void updateLyrics(MediaBridge.State state) {
+        if (!extrasActive || !appearance.showLyrics || !state.connected || state.title == null || state.title.trim().isEmpty()) {
+            if (!lyricRequestKey.isEmpty()) lyricsRepository.cancel();
+            lyricRequestKey = "";
+            if (!state.connected) player.lyrics.setStatus("Começa uma música para ver a letra.");
+            else if (state.title == null || state.title.trim().isEmpty()) player.lyrics.setStatus("A aguardar informações da música…");
+            return;
+        }
+        String attachmentKey = state.trackKey;
+        String request = attachmentKey + "|source=" + appearance.lyricsSource
+                + "|title=" + state.title + "|artist=" + state.artist + "|album=" + state.album + "|duration=" + state.durationMs;
+        String expectedKey = appearance.lyricsSource == 1 ? attachmentKey : request;
+        if (request.equals(lyricRequestKey)) return;
+        lyricRequestKey = request;
+        player.lyrics.setStatus("A procurar letra…");
+        LyricsRepository.Listener listener = (key, timeline, status) -> {
+            if (!extrasActive || !appearance.showLyrics || !request.equals(lyricRequestKey)
+                    || !key.equals(expectedKey) || !attachmentKey.equals(mediaState.trackKey)) return;
+            if (timeline != null) player.lyrics.setTimeline(timeline);
+            else player.lyrics.setStatus(status);
+            updateLyricPosition();
+        };
+        if (appearance.lyricsSource == 1) lyricsRepository.loadLocal(state.trackKey, listener);
+        else lyricsRepository.load(request, state.title, state.artist, state.album, state.durationMs, listener);
+    }
+
+    private void updateLyricPosition() {
+        if (!appearance.showLyrics) return;
+        boolean embedded = videoMode && !currentVideoId.isEmpty();
+        long position = embedded ? player.video.getPositionMs() : nativePosition();
+        player.lyrics.updatePosition(Math.max(0, position - appearance.lyricsOffsetMs), embedded || mediaState.canSeek);
+    }
+
+    private String videoId() {
+        String saved = TrackAttachments.video(this, mediaState.trackKey);
+        if (YouTubeVideoId.isValid(saved)) return saved;
+        if (MediaBridge.YT_PACKAGE.equals(mediaState.packageName) || MediaBridge.REVANCED_PACKAGE.equals(mediaState.packageName)) {
+            String id = YouTubeVideoId.from(mediaState.mediaId);
+            if (id == null || id.isEmpty()) id = YouTubeVideoId.from(mediaState.mediaUri);
+            return id == null ? "" : id;
+        }
+        return "";
+    }
+
+    private void chooseVideoMode(boolean video) {
+        if (!appearance.showVideoSwitcher || !mediaState.connected) { player.mode.setVideoSelected(false); return; }
+        if (!video) { leaveVideo(appearance.resumeAfterVideo); return; }
+        if (videoMode) return;
+        currentVideoId = videoId();
+        videoTrackKey = mediaState.trackKey;
+        videoWasNativePlaying = mediaState.playing;
+        videoMode = true;
+        player.mode.setVideoSelected(true);
+        player.artwork.setVisibility(View.GONE);
+        player.video.setVisibility(View.VISIBLE);
+        if (!currentVideoId.isEmpty()) {
+            long start = nativePosition();
+            bridge.pause();
+            player.video.play(currentVideoId, start);
+        } else {
+            player.video.play("", 0);
+            Toast.makeText(this, "Associa um link YouTube em Definições → Vídeo para esta música.", Toast.LENGTH_LONG).show();
+        }
+        updatePlayButton();
+    }
+
+    private void restoreVideo(VideoResume restore) {
+        if (!YouTubeVideoId.isValid(restore.id)) return;
+        currentVideoId = restore.id;
+        videoTrackKey = restore.trackKey;
+        videoWasNativePlaying = restore.playing;
+        videoMode = true;
+        player.mode.setVideoSelected(true);
+        player.artwork.setVisibility(View.GONE);
+        player.video.setVisibility(View.VISIBLE);
+        bridge.pause();
+        if (restore.playing) player.video.play(restore.id, restore.position);
+        else { player.video.seekTo(restore.position); player.video.pause(); }
+        updatePlayButton();
+    }
+
+    private void leaveVideo(boolean resume) { leaveVideo(resume, true); }
+
+    private void leaveVideo(boolean resume, boolean transferPosition) {
+        if (!videoMode) return;
+        boolean hadVideo = !currentVideoId.isEmpty();
+        long position = player.video.getPositionMs();
+        boolean hadPlayback = player.video.hasStarted();
+        boolean playing = player.video.isPlaying() || (!hadPlayback && videoWasNativePlaying);
+        videoMode = false;
+        currentVideoId = "";
+        player.mode.setVideoSelected(false);
+        player.video.stop();
+        player.video.setVisibility(View.GONE);
+        player.artwork.setVisibility(View.VISIBLE);
+        if (transferPosition && hadVideo && mediaState.connected && videoTrackKey.equals(mediaState.trackKey)) {
+            if (hadPlayback && mediaState.canSeek) bridge.seekTo(position);
+            if (resume && playing) bridge.play();
+        }
+        updatePlayButton();
     }
 
     private void setAvailable(View view, boolean z) {
@@ -476,6 +649,10 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         private int artTop;
         final TextView artistText;
         final AlbumArtworkView artwork;
+        final LyricsPanel lyrics;
+        final YouTubeVideoPanel video;
+        final MediaModeSwitch mode;
+        private PlayerExtrasLayout.Plan extrasPlan;
         private int barHeight;
         final SeekBar brightness;
         final LinearLayout brightnessRow;
@@ -498,6 +675,29 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         PlayerLayout() {
             super(MainActivity.this);
             setBackgroundColor(-16777216);
+            mode = new MediaModeSwitch(MainActivity.this);
+            mode.setId(R.id.media_mode_switch);
+            mode.setOnModeChanged(MainActivity.this::chooseVideoMode);
+            addView(mode);
+            video = new YouTubeVideoPanel(MainActivity.this);
+            video.setId(R.id.player_video);
+            video.setVisibility(View.GONE);
+            video.setListener(new YouTubeVideoPanel.Listener() {
+                @Override public void onProgress(long position, long duration, boolean playing) {
+                    updatePlayButton();
+                    updateLyricPosition();
+                }
+                @Override public void onError(String message) { updatePlayButton(); }
+            });
+            lyrics = new LyricsPanel(MainActivity.this);
+            lyrics.setId(R.id.player_lyrics);
+            lyrics.setOnSeek(time -> {
+                long target = PlaybackClock.seekTarget(time, appearance.lyricsOffsetMs, mediaState.durationMs);
+                if (videoMode && !currentVideoId.isEmpty()) video.seekTo(target);
+                else if (mediaState.canSeek) bridge.seekTo(target);
+            });
+            addView(lyrics);
+            addView(video);
             SeekBar seekBarCreate = MinimalSlider.create(MainActivity.this, MainActivity.this.appearance.brightnessColor);
             this.brightness = seekBarCreate;
             SeekBar seekBarCreate2 = MinimalSlider.create(MainActivity.this, MainActivity.this.appearance.volumeColor);
@@ -614,34 +814,32 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
             applyAppearance();
         }
 
-        void toggleFromCover() {
-            if (MainActivity.this.mediaState.canToggle) {
-                MainActivity.this.bridge.playPause();
-            }
-        }
+        void toggleFromCover() { onPlayClick(null); }
 
-        void previousFromCover() {
-            if (MainActivity.this.mediaState.canPrevious) {
-                MainActivity.this.bridge.previous();
-            }
-        }
+        void previousFromCover() { if (mediaState.canPrevious) onPreviousClick(null); }
 
-        void nextFromCover() {
-            if (MainActivity.this.mediaState.canNext) {
-                MainActivity.this.bridge.next();
-            }
-        }
+        void nextFromCover() { if (mediaState.canNext) onNextClick(null); }
 
         void onPreviousClick(View view) {
-            MainActivity.this.bridge.previous();
+            boolean embedded = videoMode;
+            leaveVideo(false);
+            bridge.previous();
+            if (embedded) bridge.play();
         }
 
         void onPlayClick(View view) {
-            MainActivity.this.bridge.playPause();
+            if (videoMode && !currentVideoId.isEmpty()) {
+                if (video.isPlaying()) video.pause();
+                else video.play(currentVideoId, video.getPositionMs());
+                updatePlayButton();
+            } else if (mediaState.canToggle) bridge.playPause();
         }
 
         void onNextClick(View view) {
-            MainActivity.this.bridge.next();
+            boolean embedded = videoMode;
+            leaveVideo(false);
+            bridge.next();
+            if (embedded) bridge.play();
         }
 
         private LinearLayout bar(int i, SeekBar seekBar) {
@@ -669,6 +867,12 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
         }
 
         void applyAppearance() {
+            if (!appearance.showVideoSwitcher) leaveVideo(false);
+            mode.setVisibility(appearance.showVideoSwitcher ? View.VISIBLE : View.GONE);
+            lyrics.setVisibility(appearance.showLyrics ? View.VISIBLE : View.GONE);
+            lyrics.setStyle(FontCatalog.get(MainActivity.this, appearance.lyricsFontFamily, appearance.lyricsFontStyle),
+                    appearance.lyricsSize, appearance.lyricsColor, appearance.lyricsSpacing,
+                    appearance.lyricsAlignment, appearance.lyricsTapToSeek);
             this.artwork.applyAppearance(MainActivity.this.appearance);
             MinimalSlider.tint(this.brightness, MainActivity.this.appearance.brightnessColor);
             MinimalSlider.tint(this.volume, MainActivity.this.appearance.volumeColor);
@@ -701,8 +905,8 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
             this.artwork.setImportantForAccessibility(MainActivity.this.appearance.coverGestures ? 1 : 0);
             this.titleText.setVisibility(MainActivity.this.appearance.showTitle ? 0 : 8);
             this.artistText.setVisibility((!MainActivity.this.appearance.showArtist || this.artistText.length() <= 0) ? 8 : 0);
-            this.titleText.setTypeface(SettingsActivity.font(MainActivity.this.appearance));
-            this.artistText.setTypeface(SettingsActivity.font(MainActivity.this.appearance));
+            this.titleText.setTypeface(SettingsActivity.font(MainActivity.this, MainActivity.this.appearance));
+            this.artistText.setTypeface(SettingsActivity.font(MainActivity.this, MainActivity.this.appearance));
             this.titleText.setTextSize(MainActivity.this.appearance.titleSize);
             this.artistText.setTextSize(MainActivity.this.appearance.artistSize);
             this.titleText.setTextColor(MainActivity.this.appearance.titleColor);
@@ -728,6 +932,31 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
             int size = View.MeasureSpec.getSize(i);
             int size2 = View.MeasureSpec.getSize(i2);
             setMeasuredDimension(size, size2);
+            if (appearance.showLyrics || appearance.showVideoSwitcher) {
+                int infoWidth = Math.max(0, (size > size2 ? size / 2 : size) - dp(32));
+                metadata.measure(exact(infoWidth), MeasureSpec.makeMeasureSpec(Math.max(0, size2 / 3), MeasureSpec.AT_MOST));
+                extrasPlan = PlayerExtrasLayout.create(size, size2, getResources().getDisplayMetrics().density,
+                        appearance.albumPercent, play.getVisibility() != View.GONE, appearance.showBrightness,
+                        appearance.showVolume, metadata.getVisibility() == View.GONE ? 0 : metadata.getMeasuredHeight(),
+                        appearance.textPosition, appearance.showVideoSwitcher, appearance.showLyrics, appearance.lyricsHeight);
+                metadata.measure(exact(extrasPlan.metadata.width), MeasureSpec.makeMeasureSpec(Math.max(0, size2 / 3), MeasureSpec.AT_MOST));
+                extrasPlan = PlayerExtrasLayout.create(size, size2, getResources().getDisplayMetrics().density,
+                        appearance.albumPercent, play.getVisibility() != View.GONE, appearance.showBrightness,
+                        appearance.showVolume, metadata.getVisibility() == View.GONE ? 0 : metadata.getMeasuredHeight(),
+                        appearance.textPosition, appearance.showVideoSwitcher, appearance.showLyrics, appearance.lyricsHeight);
+                measurePlan(artwork, extrasPlan.art);
+                measurePlan(video, extrasPlan.art);
+                measurePlan(mode, extrasPlan.mode);
+                measurePlan(lyrics, extrasPlan.lyrics);
+                measurePlan(metadata, extrasPlan.metadata);
+                measurePlan(brightnessRow, extrasPlan.brightness);
+                measurePlan(volumeRow, extrasPlan.volume);
+                measurePlan(previous, extrasPlan.previous);
+                measurePlan(play, extrasPlan.play);
+                measurePlan(next, extrasPlan.next);
+                return;
+            }
+            extrasPlan = null;
             this.landscape = size > size2 && this.play.getVisibility() != 8;
             this.sideSize = MainActivity.this.dp(64.0f);
             this.playSize = MainActivity.this.dp(88.0f);
@@ -756,6 +985,9 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
                 this.artSize = iMax4;
                 this.artLeft = (size - iMax4) / 2;
             }
+            setButtonPadding(play, playSize);
+            setButtonPadding(previous, sideSize);
+            setButtonPadding(next, sideSize);
             this.artwork.measure(exact(this.artSize), exact(this.artSize));
             ImageButton[] imageButtonArr = this.transportButtons;
             int length = imageButtonArr.length;
@@ -767,12 +999,40 @@ public final class MainActivity extends Activity implements MediaBridge.Listener
             this.volumeRow.measure(exact(this.artSize), exact(MainActivity.this.dp(48.0f)));
         }
 
+        private void measurePlan(View view, PlayerExtrasLayout.Rect rect) {
+            setButtonPadding(view, Math.min(rect.width, rect.height));
+            view.measure(exact(rect.width), exact(rect.height));
+        }
+
+        private void setButtonPadding(View view, int size) {
+            if (view != play && view != previous && view != next) return;
+            int padding = Math.max(0, Math.round(size * (view == play ? 25f / 88f : 15f / 64f)));
+            view.setPadding(padding, padding, padding, padding);
+        }
+
+        private void layoutPlan(View view, PlayerExtrasLayout.Rect rect) {
+            view.layout(rect.left, rect.top, rect.right(), rect.bottom());
+        }
+
         private int exact(int i) {
             return View.MeasureSpec.makeMeasureSpec(Math.max(0, i), 1073741824);
         }
 
         @Override
         protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            if (extrasPlan != null) {
+                layoutPlan(artwork, extrasPlan.art);
+                layoutPlan(video, extrasPlan.art);
+                layoutPlan(mode, extrasPlan.mode);
+                layoutPlan(lyrics, extrasPlan.lyrics);
+                layoutPlan(metadata, extrasPlan.metadata);
+                layoutPlan(brightnessRow, extrasPlan.brightness);
+                layoutPlan(volumeRow, extrasPlan.volume);
+                layoutPlan(previous, extrasPlan.previous);
+                layoutPlan(play, extrasPlan.play);
+                layoutPlan(next, extrasPlan.next);
+                return;
+            }
             int width = right - left;
             int height = bottom - top;
             artwork.layout(artLeft, artTop, artLeft + artSize, artTop + artSize);

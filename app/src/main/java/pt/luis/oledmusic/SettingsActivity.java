@@ -23,6 +23,7 @@ import android.view.WindowInsets;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
@@ -45,6 +46,12 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
     private Switch artist;
     private View artistOptions;
     private View borderOptions;
+    private View lyricsOptions;
+    private View videoOptions;
+    private TextView mediaAttachmentStatus;
+    private TextView lyricsPreview;
+    private final java.util.concurrent.ExecutorService attachmentWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static final int IMPORT_LYRICS = 812;
     private AlbumArtworkView borderPreview;
     private TextView artistPreview;
     private Switch brightness;
@@ -233,7 +240,7 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
                 SettingsActivity.this.setTextPosition(i);
             }
         });
-        choice(linearLayoutColumn3, "Tipo de letra", R.id.font_family_spinner, new String[]{"Sans", "Serif", "Monoespaçada", "Condensada"}, this.preferences.fontFamily, new IntConsumer() {
+        choice(linearLayoutColumn3, "Tipo de letra", R.id.font_family_spinner, FontCatalog.names(), this.preferences.fontFamily, new IntConsumer() {
             @Override
             public final void accept(int i) {
                 SettingsActivity.this.setFontFamily(i);
@@ -300,6 +307,7 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
         add(section4.body, linearLayoutColumn7, 4);
         color(linearLayoutColumn7, "Cor do volume", R.id.volume_color_choice, false, this.preferences.volumeColor, false);
         help(linearLayoutColumn7, "Volume multimédia, incluindo o dispositivo de áudio ligado. Não altera o volume das chamadas nem dos alarmes.");
+        buildMediaSections(linearLayoutColumn2);
         Section section5 = section(linearLayoutColumn2, "Temporizador", R.id.timer_section_header, R.id.timer_section_content, new Supplier() {
             @Override
             public final Object get() {
@@ -378,6 +386,134 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
         updateDuration();
         updateTimer();
         expand(bundle != null ? bundle.getInt("section", -1) : -1);
+    }
+
+    private void buildMediaSections(LinearLayout parent) {
+        Section video = section(parent, "Vídeo", R.id.video_section_header, R.id.video_section_content,
+                () -> preferences.showVideoSwitcher ? "Seletor Capa / Vídeo" : "Só capa");
+        toggle(video.body, "Mostrar seletor Capa / Vídeo", R.id.show_video_switch,
+                preferences.showVideoSwitcher, value -> preferences.showVideoSwitcher = value);
+        LinearLayout videoColumn = column();
+        videoOptions = videoColumn;
+        add(video.body, videoColumn, 4);
+        help(videoColumn, "O vídeo usa o leitor YouTube incorporado e ligação à Internet. Ao abrir um vídeo, a música na app original é pausada. A disponibilidade depende de cada vídeo.");
+        toggle(videoColumn, "Retomar música ao voltar à capa", R.id.resume_after_video_switch,
+                preferences.resumeAfterVideo, value -> preferences.resumeAfterVideo = value);
+        Button link = button("Ligar vídeo à música atual", false);
+        link.setId(R.id.track_video_link);
+        link.setEnabled(!currentTrackKey().isEmpty());
+        link.setOnClickListener(view -> editVideoLink());
+        add(videoColumn, link, 8);
+        help(videoColumn, "Usa o vídeo identificado pelo YouTube Music. Se não for identificado, podes associar um link YouTube a esta música. Não altera o modo Música/Vídeo da app original.");
+
+        Section lyrics = section(parent, "Letras", R.id.lyrics_section_header, R.id.lyrics_section_content,
+                () -> preferences.showLyrics ? "Acompanhar a música" : "Ocultas");
+        toggle(lyrics.body, "Mostrar letras abaixo da capa", R.id.show_lyrics_switch,
+                preferences.showLyrics, value -> preferences.showLyrics = value);
+        LinearLayout lyricsColumn = column();
+        lyricsOptions = lyricsColumn;
+        add(lyrics.body, lyricsColumn, 4);
+        choice(lyricsColumn, "Origem", R.id.lyrics_source_spinner,
+                new String[]{"Online · LRCLIB", "Ficheiro local · LRC"}, preferences.lyricsSource,
+                value -> preferences.lyricsSource = value);
+        help(lyricsColumn, "Online: envia título, artista, álbum e duração ao LRCLIB para procurar a letra. As letras disponíveis podem ser sincronizadas ou apenas texto. Não é necessário login.");
+        Button local = button("Importar letra para a música atual", false);
+        local.setId(R.id.lyrics_import_button);
+        local.setEnabled(!currentTrackKey().isEmpty());
+        local.setOnClickListener(view -> {
+            Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*")
+                    .addCategory(Intent.CATEGORY_OPENABLE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            try { startActivityForResult(pick, IMPORT_LYRICS); }
+            catch (ActivityNotFoundException unavailable) {
+                Toast.makeText(this, "Não foi possível abrir o seletor de ficheiros.", Toast.LENGTH_LONG).show();
+            }
+        });
+        add(lyricsColumn, local, 4);
+        mediaAttachmentStatus = text(currentTrackKey().isEmpty() ? "Começa uma música antes de associar ficheiros ou vídeos."
+                : "Música atual: " + getIntent().getStringExtra("track_title"), 13, 0xFFAAAAAA);
+        add(lyricsColumn, mediaAttachmentStatus, 4);
+        choice(lyricsColumn, "Tipo de letra", R.id.lyrics_font_spinner, FontCatalog.names(),
+                preferences.lyricsFontFamily, value -> preferences.lyricsFontFamily = value);
+        choice(lyricsColumn, "Estilo", R.id.lyrics_style_spinner,
+                new String[]{"Normal", "Negrito", "Itálico", "Negrito e itálico"},
+                preferences.lyricsFontStyle, value -> preferences.lyricsFontStyle = value);
+        lyricsPreview = text("A música continua aqui.", 23, preferences.lyricsColor);
+        lyricsPreview.setGravity(android.view.Gravity.CENTER);
+        add(lyricsColumn, lyricsPreview, 16);
+        slider(lyricsColumn, "Tamanho da letra", R.id.lyrics_size_slider, 14, 36,
+                preferences.lyricsSize, " sp", value -> preferences.lyricsSize = value);
+        color(lyricsColumn, "Cor da linha ativa", R.id.lyrics_color_choice, false, preferences.lyricsColor, true);
+        slider(lyricsColumn, "Espaço entre linhas", R.id.lyrics_spacing_slider, 2, 30,
+                preferences.lyricsSpacing, " dp", value -> preferences.lyricsSpacing = value);
+        choice(lyricsColumn, "Alinhamento", R.id.lyrics_alignment_spinner,
+                new String[]{"Centrado", "À esquerda", "À direita"}, preferences.lyricsAlignment,
+                value -> preferences.lyricsAlignment = value);
+        slider(lyricsColumn, "Espaço para as letras", R.id.lyrics_height_slider, 15, 50,
+                preferences.lyricsHeight, "%", value -> preferences.lyricsHeight = value);
+        slider(lyricsColumn, "Ajuste da sincronização", R.id.lyrics_offset_slider, -5000, 5000,
+                preferences.lyricsOffsetMs, " ms", value -> preferences.lyricsOffsetMs = value);
+        help(lyricsColumn, "Um ajuste positivo atrasa as letras. Arrasta para ler livremente e toca em Seguir para voltar à música.");
+        toggle(lyricsColumn, "Tocar numa linha para avançar a música", R.id.lyrics_seek_switch,
+                preferences.lyricsTapToSeek, value -> preferences.lyricsTapToSeek = value);
+    }
+
+    private String currentTrackKey() {
+        String key = getIntent().getStringExtra("track_key");
+        return key == null ? "" : key;
+    }
+
+    private void editVideoLink() {
+        String key = currentTrackKey();
+        if (key.isEmpty()) return;
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setTextColor(0xFFFFFFFF);
+        input.setHintTextColor(0xFF888888);
+        input.setHint("https://www.youtube.com/watch?v=…");
+        String saved = TrackAttachments.video(this, key);
+        if (!saved.isEmpty()) input.setText("https://www.youtube.com/watch?v=" + saved);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Vídeo desta música")
+                .setView(input).setNegativeButton("Cancelar", null)
+                .setNeutralButton("Remover", (d, which) -> TrackAttachments.video(this, key, ""))
+                .setPositiveButton("Guardar link", null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            String id = YouTubeVideoId.from(input.getText().toString().trim());
+            if (id == null || id.isEmpty()) { input.setError("Introduz um link ou identificador YouTube válido."); return; }
+            TrackAttachments.video(this, key, id);
+            dialog.dismiss();
+        }));
+        dialog.show();
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != IMPORT_LYRICS || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        String key = currentTrackKey();
+        if (key.isEmpty()) return;
+        Uri uri = data.getData();
+        android.content.Context context = getApplicationContext();
+        mediaAttachmentStatus.setText("A importar letra…");
+        attachmentWorker.submit(() -> {
+            String message;
+            boolean success;
+            try { TrackAttachments.importLyrics(context, uri, key); message = "Letra importada. Toca em Guardar para aplicar."; success = true; }
+            catch (Exception failure) { message = "Não foi possível importar a letra. Escolhe um ficheiro LRC ou texto UTF-8."; success = false; }
+            final String result = message;
+            final boolean imported = success;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                mediaAttachmentStatus.setText(result);
+                if (imported) {
+                    preferences.lyricsSource = 1;
+                    ((Spinner) findViewById(R.id.lyrics_source_spinner)).setSelection(1);
+                }
+            });
+        });
+    }
+
+    @Override protected void onDestroy() {
+        attachmentWorker.shutdownNow();
+        super.onDestroy();
     }
 
     WindowInsets applySettingsInsets(LinearLayout linearLayout, View view, WindowInsets windowInsets) {
@@ -782,6 +918,8 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
             this.preferences.artistColor = i2;
         } else if (i == R.id.album_border_color_choice) {
             this.preferences.albumBorderColor = i2;
+        } else if (i == R.id.lyrics_color_choice) {
+            this.preferences.lyricsColor = i2;
         }
         refresh();
     }
@@ -790,6 +928,13 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
         if (this.building) {
             return;
         }
+        lyricsPreview.setTypeface(FontCatalog.get(this, preferences.lyricsFontFamily, preferences.lyricsFontStyle));
+        lyricsPreview.setTextSize(preferences.lyricsSize);
+        lyricsPreview.setTextColor(preferences.lyricsColor);
+        lyricsPreview.setGravity(preferences.lyricsAlignment == 1 ? android.view.Gravity.LEFT
+                : preferences.lyricsAlignment == 2 ? android.view.Gravity.RIGHT : android.view.Gravity.CENTER);
+        this.lyricsOptions.setVisibility(preferences.showLyrics ? View.VISIBLE : View.GONE);
+        this.videoOptions.setVisibility(preferences.showVideoSwitcher ? View.VISIBLE : View.GONE);
         this.borderOptions.setVisibility(this.preferences.showAlbumBorder ? View.VISIBLE : View.GONE);
         this.borderPreview.applyAppearance(this.preferences);
         this.borderPreview.setImageAlpha(Math.round((1 - this.preferences.coverDim / 100f) * 255));
@@ -810,7 +955,7 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
         this.volumeOptions.setVisibility(this.preferences.showVolume ? 0 : 8);
         this.titlePreview.setVisibility(this.preferences.showTitle ? 0 : 8);
         this.artistPreview.setVisibility(this.preferences.showArtist ? 0 : 8);
-        Typeface typefaceFont = font(this.preferences);
+        Typeface typefaceFont = font(this, this.preferences);
         this.titlePreview.setTypeface(typefaceFont);
         this.artistPreview.setTypeface(typefaceFont);
         this.titlePreview.setTextSize(this.preferences.titleSize);
@@ -822,8 +967,8 @@ public final class SettingsActivity extends Activity implements ColorPickerDialo
         }
     }
 
-    static Typeface font(AppPreferences appPreferences) {
-        return Typeface.create(new String[]{"sans-serif", "serif", "monospace", "sans-serif-condensed"}[appPreferences.fontFamily], appPreferences.fontStyle);
+    static Typeface font(android.content.Context context, AppPreferences appPreferences) {
+        return FontCatalog.get(context, appPreferences.fontFamily, appPreferences.fontStyle);
     }
 
     public String timerSummary() {

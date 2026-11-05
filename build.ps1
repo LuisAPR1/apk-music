@@ -34,7 +34,7 @@ $manifestXml.DocumentElement.SetAttribute('package', 'pt.luis.oledmusic')
 $generatedManifest = Join-Path $work 'AndroidManifest.xml'
 $manifestXml.Save($generatedManifest)
 Run (Join-Path $bt 'aapt2.exe') @('compile','--dir',$res,'-o',"$work\resources.zip")
-Run (Join-Path $bt 'aapt2.exe') @('link','-I',$androidJar,'--manifest',$generatedManifest,'--min-sdk-version','26','--target-sdk-version','36','--version-code',$versionCode,'--version-name',$versionName,'--java',$generated,'-o',"$work\unsigned.apk","$work\resources.zip")
+Run (Join-Path $bt 'aapt2.exe') @('link','-I',$androidJar,'--manifest',$generatedManifest,'--min-sdk-version','26','--target-sdk-version','36','--version-code',$versionCode,'--version-name',$versionName,'-A',(Join-Path $PSScriptRoot 'app\src\main\assets'),'--java',$generated,'-o',"$work\unsigned.apk","$work\resources.zip")
 $sources = @(Get-ChildItem (Join-Path $PSScriptRoot 'app\src\main\java'),$generated -Filter '*.java' -Recurse | ForEach-Object { $_.FullName })
 $javacArgs = @('--release','8','-encoding','UTF-8','-classpath',$androidJar,'-d',$classes) + $sources
 Run (Join-Path $javaBin 'javac.exe') $javacArgs
